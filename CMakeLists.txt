@@ -7,8 +7,19 @@ option(CMAKE_VERBOSE_MAKEFILE "make verbose=1" OFF)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 
-add_executable(ssltest main.cpp)
-target_link_libraries(ssltest
+add_executable(ssl-server server.cpp)
+
+target_link_libraries(ssl-server
+    PUBLIC 	
+    ssl 
+	crypto
+	pthread)
+
+
+
+add_executable(ssl-client client.cpp)
+
+target_link_libraries(ssl-client
     PUBLIC 	
     ssl 
 	crypto
