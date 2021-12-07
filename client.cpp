@@ -34,7 +34,7 @@ SSL_CTX *create_context()
 	const SSL_METHOD *method;
 	SSL_CTX *ctx;
 
-	method = TLS_client_method();
+	method = TLSv1_2_client_method();
 
 	ctx = SSL_CTX_new(method);
 	if (!ctx) {
@@ -46,9 +46,15 @@ SSL_CTX *create_context()
 	return ctx;
 }
 
+int mycheck(int precheck,X509_STORE_CTX *)
+{
+	printf("precheck = %d\n",precheck);
+	return precheck;
+}
+
 void configure_context(SSL_CTX *ctx)
 {
-	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+	//SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, mycheck);
 
 	SSL_CTX_load_verify_locations(ctx, "ca/ca.cer", NULL);
 }
@@ -56,6 +62,12 @@ void configure_context(SSL_CTX *ctx)
 int main(int argc, char **argv)
 {
 	SSL_CTX *ctx;
+
+	SSL_library_init();
+
+	OpenSSL_add_all_algorithms();
+
+	SSL_load_error_strings();
 
 	ctx = create_context();
 
@@ -69,12 +81,12 @@ int main(int argc, char **argv)
 
 		SSL_set_fd(ssl, sock);
 
-		SSL_connect(ssl);
-
-		//CHK_SSL(err);
-
-		printf("SSL connection using %s/n", SSL_get_cipher(ssl));
-
+		if(0 > SSL_connect(ssl)) {
+			ERR_print_errors_fp(stderr);
+		}else {
+			printf("SSL connection using %s/n", SSL_get_cipher(ssl));
+		}
+		//SSL_set_tlsext_host_name(ssl, "139.180.178.5");
 		unsigned char buff[1024];
 		int len = SSL_read(ssl, buff, 1024);
 
