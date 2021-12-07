@@ -84,7 +84,7 @@ int main(int argc, char **argv)
 		if(0 > SSL_connect(ssl)) {
 			ERR_print_errors_fp(stderr);
 		}else {
-			printf("SSL connection using %s/n", SSL_get_cipher(ssl));
+			printf("SSL connection using %s\n", SSL_get_cipher(ssl));
 		}
 		//SSL_set_tlsext_host_name(ssl, "139.180.178.5");
 		unsigned char buff[1024];
