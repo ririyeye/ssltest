@@ -56,12 +56,21 @@ static int pass(char *buf, int size, int rwflag, void *userdata)
 {
 	char *pass = "12138";
 	strncpy(buf, (char *)pass, size);
-	buf[size - 1] = '\0';
+	buf[strlen(pass)] = '\0';
 	return strlen(pass);
 }
 
 void configure_context(SSL_CTX *ctx)
 {
+	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+
+	SSL_CTX_set_default_passwd_cb(ctx, pass);
+
+	if (SSL_CTX_load_verify_locations(ctx, "ca/ca.cer", NULL) <= 0) {
+		ERR_print_errors_fp(stderr);
+		exit(EXIT_FAILURE);
+	}
+
 	/* Set the key and cert */
 	if (SSL_CTX_use_certificate_file(ctx, "server/pri.ca", SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
@@ -73,13 +82,23 @@ void configure_context(SSL_CTX *ctx)
 		exit(EXIT_FAILURE);
 	}
 
-	SSL_CTX_set_default_passwd_cb(ctx, pass);
+	//验证密钥与证书是否匹配
+	if (SSL_CTX_check_private_key(ctx) < 0) {
+		ERR_print_errors_fp(stdout);
+		exit(1);
+	}
 }
 
 int main(int argc, char **argv)
 {
 	int sock;
 	SSL_CTX *ctx;
+
+	SSL_library_init();
+
+	OpenSSL_add_all_algorithms();
+
+	SSL_load_error_strings();
 
 	ctx = create_context();
 
