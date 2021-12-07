@@ -52,18 +52,28 @@ SSL_CTX *create_context()
 	return ctx;
 }
 
+static int pass(char *buf, int size, int rwflag, void *userdata)
+{
+	char *pass = "12138";
+	strncpy(buf, (char *)pass, size);
+	buf[size - 1] = '\0';
+	return strlen(pass);
+}
+
 void configure_context(SSL_CTX *ctx)
 {
 	/* Set the key and cert */
-	if (SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0) {
+	if (SSL_CTX_use_certificate_file(ctx, "server/pri.ca", SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
 		exit(EXIT_FAILURE);
 	}
 
-	if (SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0) {
+	if (SSL_CTX_use_PrivateKey_file(ctx, "server/pri_key.pem", SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stderr);
 		exit(EXIT_FAILURE);
 	}
+
+	SSL_CTX_set_default_passwd_cb(ctx, pass);
 }
 
 int main(int argc, char **argv)
@@ -75,7 +85,7 @@ int main(int argc, char **argv)
 
 	configure_context(ctx);
 
-	sock = create_socket(4433);
+	sock = create_socket(10000);
 
 	/* Handle connections */
 	while (1) {
