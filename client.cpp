@@ -46,17 +46,17 @@ SSL_CTX *create_context()
 	return ctx;
 }
 
-int mycheck(int precheck,X509_STORE_CTX *)
-{
-	printf("precheck = %d\n",precheck);
-	return precheck;
-}
+static int my_pref_list[] = {
+	NID_secp256k1, /* secp256k1 (22) */
+};
 
 void configure_context(SSL_CTX *ctx)
 {
-	//SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, mycheck);
+	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
 
 	SSL_CTX_load_verify_locations(ctx, "ca/ca.cer", NULL);
+
+	SSL_CTX_set1_curves(ctx, my_pref_list, sizeof(my_pref_list) / sizeof(int));
 }
 
 int main(int argc, char **argv)
@@ -81,12 +81,12 @@ int main(int argc, char **argv)
 
 		SSL_set_fd(ssl, sock);
 
-		if(0 > SSL_connect(ssl)) {
+		if (0 > SSL_connect(ssl)) {
 			ERR_print_errors_fp(stderr);
-		}else {
+		} else {
 			printf("SSL connection using %s\n", SSL_get_cipher(ssl));
 		}
-		//SSL_set_tlsext_host_name(ssl, "139.180.178.5");
+
 		unsigned char buff[1024];
 		int len = SSL_read(ssl, buff, 1024);
 
