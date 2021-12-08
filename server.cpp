@@ -60,6 +60,26 @@ static int pass(char *buf, int size, int rwflag, void *userdata)
 	return strlen(pass);
 }
 
+
+static int my_pref_list[] =
+{
+NID_sect571r1, /* sect571r1 (14) */
+NID_sect571k1, /* sect571k1 (13) */
+NID_secp521r1, /* secp521r1 (25) */
+NID_sect409k1, /* sect409k1 (11) */
+NID_sect409r1, /* sect409r1 (12) */
+NID_secp384r1, /* secp384r1 (24) */
+NID_sect283k1, /* sect283k1 (9) */
+NID_sect283r1, /* sect283r1 (10) */
+NID_secp256k1, /* secp256k1 (22) */
+NID_X9_62_prime256v1, /* secp256r1 (23) */
+NID_sect239k1, /* sect239k1 (8) */
+NID_sect233k1, /* sect233k1 (6) */
+NID_sect233r1, /* sect233r1 (7) */
+NID_secp224k1, /* secp224k1 (20) */
+NID_secp224r1, /* secp224r1 (21) */
+};
+
 void configure_context(SSL_CTX *ctx)
 {
 	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
@@ -87,6 +107,8 @@ void configure_context(SSL_CTX *ctx)
 		ERR_print_errors_fp(stdout);
 		exit(1);
 	}
+
+	SSL_CTX_set1_curves(ctx,my_pref_list,sizeof(my_pref_list)/sizeof(int));
 }
 
 int main(int argc, char **argv)
@@ -125,6 +147,7 @@ int main(int argc, char **argv)
 		if (SSL_accept(ssl) <= 0) {
 			ERR_print_errors_fp(stderr);
 		} else {
+			printf("sharkhand ok!\n");
 			SSL_write(ssl, reply, strlen(reply));
 		}
 

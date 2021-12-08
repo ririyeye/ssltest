@@ -50,7 +50,7 @@ root_pass=12138
 
 [ -f $root_path/ca.cer -a -f $root_path/pri_key.pem ] || {
 	echo "gen root key ca"
-	genrsakey
+	genecckey
 	getnrootca
 }
 
@@ -59,7 +59,7 @@ mkdir server
 pri_path=server
 pri_pass=12138
 echo "gen pri key"
-genrsakey
+genecckey
 echo "gen pri ca"
 getcaReq
 genpfx
