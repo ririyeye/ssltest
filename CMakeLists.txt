@@ -24,3 +24,12 @@ target_link_libraries(ssl-client
     ssl 
 	crypto
 	pthread)
+
+add_executable(dtls-server dtls-server.cpp)
+
+target_link_libraries(dtls-server
+	PUBLIC 	
+	ssl 
+	crypto
+	pthread)
+
