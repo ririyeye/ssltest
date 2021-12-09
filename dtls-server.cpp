@@ -405,7 +405,7 @@ void connection_handle(unique_ptr<pass_info> pinfo)
 			}
 		}
 	}
-
+	SSL_shutdown(ssl);
 cleanup:
 	close(fd);
 	SSL_free(ssl);

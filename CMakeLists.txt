@@ -6,6 +6,7 @@ option(CMAKE_VERBOSE_MAKEFILE "make verbose=1" OFF)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
+add_compile_options("-g3")
 
 add_executable(ssl-server server.cpp)
 
