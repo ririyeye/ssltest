@@ -345,6 +345,9 @@ void connection_handle(unique_ptr<pass_info> pinfo)
 			case SSL_ERROR_WANT_READ:
 				/* Handle socket timeouts */
 				if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP, 0, NULL)) {
+					unsigned char buff[8];
+					int ret = SSL_write(ssl, buff, 0);
+					printf("keepalive = %d\n",ret);
 					num_timeouts++;
 					reading = 0;
 				}
@@ -430,7 +433,7 @@ int main(int argc, char **argv)
 
 	configure_context(ctx);
 
-	sock = create_socket(server, 10000);
+	sock = create_socket(server, 20000);
 
 	/* Handle connections */
 	while (1) {
@@ -452,6 +455,12 @@ int main(int argc, char **argv)
 
 		while (DTLSv1_listen(ssl, (BIO_ADDR *)&client) <= 0) {
 		}
+
+		char addrbuf[1024];
+		printf("listen Thread %lx: accepted connection from %s:%d\n",
+			       pthread_self(),
+			       inet_ntop(AF_INET, &client.s4.sin_addr, addrbuf, INET6_ADDRSTRLEN),
+			       ntohs(client.s4.sin_port));
 
 		unique_ptr<pass_info> info = unique_ptr<pass_info>(new pass_info);
 		memcpy(&info->server_addr, &server, sizeof(struct sockaddr_storage));
