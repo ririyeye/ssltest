@@ -41,3 +41,13 @@ target_link_libraries(dtls-client
 	ssl
 	crypto
 	pthread)
+
+add_executable(dtls-libevent-server dtls-libevent-server.cpp)
+
+target_link_libraries(dtls-libevent-server
+	PUBLIC
+	event
+	ssl
+	crypto
+	pthread)
+
