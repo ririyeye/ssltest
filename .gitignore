@@ -2,3 +2,4 @@ test
 ssl-server
 ssl-client
 dtls-server
+dtls-client
