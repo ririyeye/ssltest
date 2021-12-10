@@ -49,5 +49,6 @@ target_link_libraries(dtls-libevent-server
 	event
 	ssl
 	crypto
+	event_openssl
 	pthread)
 

@@ -1,0 +1,2 @@
+#test client command
+openssl s_client -connect 127.0.0.1:20000 -dtls -curves secp256k1 -CAfile ca/ca.cer

@@ -9,6 +9,13 @@
 #include <openssl/rand.h>
 #include <memory>
 #include <thread>
+
+#include <event.h>
+#include <event2/listener.h>
+#include <event2/bufferevent_ssl.h>
+
+event_base *evbase = NULL;
+
 using namespace std;
 union PEER {
 	struct sockaddr_storage ss;
@@ -268,6 +275,57 @@ void configure_context(SSL_CTX *ctx)
 	SSL_CTX_set_cookie_verify_cb(ctx, &verify_cookie);
 }
 
+static void 
+ssl_readcb(struct bufferevent * bev, void * arg)
+{
+   //将输入缓存区的数据输出
+   struct evbuffer *in = bufferevent_get_input(bev);
+   printf("Received %zu bytes\n", evbuffer_get_length(in));
+   printf("----- data ----\n");
+   printf("%.*s\n", (int)evbuffer_get_length(in), evbuffer_pullup(in, -1));
+   //将输入缓存区的数据放入输出缓存区发生到客户端
+   bufferevent_write_buffer(bev, in);
+}
+
+int timeout = 0;
+static void ssl_timeout(struct bufferevent *bev, short what, void *arg)
+{
+	SSL *ssl = (SSL *) arg;
+	printf("timeout \n");
+	if(++timeout > 3) {
+		bufferevent_free(bev);
+		SSL_shutdown(ssl);
+		printf("close \n");
+	}
+	//struct evbuffer *in = bufferevent_get_input(bev);
+}
+
+void commit_new_socket(int fd, SSL *ssl)
+{
+	int firstflg = 0;
+	if (evbase == NULL) {
+		evbase = event_base_new();
+		firstflg = 1;
+	}
+
+	auto bev = bufferevent_openssl_socket_new(evbase, fd, ssl,
+					     BUFFEREVENT_SSL_OPEN,
+					     BEV_OPT_CLOSE_ON_FREE);
+
+	bufferevent_enable(bev, EV_READ);
+	bufferevent_enable(bev, EV_WRITE);
+	bufferevent_enable(bev, EV_TIMEOUT);
+	bufferevent_setcb(bev, ssl_readcb, NULL, ssl_timeout, ssl);
+	bufferevent_settimeout(bev, 5, 0);
+	char buf[] = "Hello, this is ECHO\n";
+	bufferevent_write(bev, buf, sizeof(buf));
+
+	if (firstflg) {
+		thread thread_eb(event_base_loop, evbase, 0);
+		thread_eb.detach();
+	}
+}
+
 void connection_handle(unique_ptr<pass_info> pinfo)
 {
 #define BUFFER_SIZE (1 << 16)
@@ -329,6 +387,9 @@ void connection_handle(unique_ptr<pass_info> pinfo)
 		printf("\n\n Cipher: %s", SSL_CIPHER_get_name(SSL_get_current_cipher(ssl)));
 		printf("\n------------------------------------------------------------\n\n");
 	}
+
+	commit_new_socket(fd,ssl);
+	return;
 
 	while (!(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
 		reading = 1;
