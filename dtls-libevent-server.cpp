@@ -26,6 +26,12 @@ struct pass_info {
 	PEER server_addr;
 	PEER client_addr;
 	SSL *ssl;
+	int fd;
+};
+
+struct event_node {
+	unique_ptr<pass_info> pinfo;
+	int timeout;
 };
 
 int create_socket(PEER &peer, int port)
@@ -275,33 +281,35 @@ void configure_context(SSL_CTX *ctx)
 	SSL_CTX_set_cookie_verify_cb(ctx, &verify_cookie);
 }
 
-static void 
-ssl_readcb(struct bufferevent * bev, void * arg)
+static void
+ssl_readcb(struct bufferevent *bev, void *arg)
 {
-   //将输入缓存区的数据输出
-   struct evbuffer *in = bufferevent_get_input(bev);
-   printf("Received %zu bytes\n", evbuffer_get_length(in));
-   printf("----- data ----\n");
-   printf("%.*s\n", (int)evbuffer_get_length(in), evbuffer_pullup(in, -1));
-   //将输入缓存区的数据放入输出缓存区发生到客户端
-   bufferevent_write_buffer(bev, in);
+	//将输入缓存区的数据输出
+	struct evbuffer *in = bufferevent_get_input(bev);
+	printf("Received %zu bytes\n", evbuffer_get_length(in));
+	printf("----- data ----\n");
+	printf("%.*s\n", (int)evbuffer_get_length(in), evbuffer_pullup(in, -1));
+	//将输入缓存区的数据放入输出缓存区发生到客户端
+	bufferevent_write_buffer(bev, in);
 }
 
-int timeout = 0;
 static void ssl_timeout(struct bufferevent *bev, short what, void *arg)
 {
-	SSL *ssl = (SSL *) arg;
-	printf("timeout \n");
-	if(++timeout > 3) {
+	event_node *pen = (event_node *)arg;
+	printf("%d timeout\n", pen->pinfo->fd);
+	if (pen->timeout++ > 10) {
 		bufferevent_free(bev);
-		SSL_shutdown(ssl);
-		printf("close \n");
+		SSL_shutdown(pen->pinfo->ssl);
+		printf("%d close\n", pen->pinfo->fd);
+		delete pen;
 	}
-	//struct evbuffer *in = bufferevent_get_input(bev);
 }
 
-void commit_new_socket(int fd, SSL *ssl)
+int commit_new_socket(unique_ptr<pass_info> pinfo)
 {
+	int fd = pinfo->fd;
+	SSL *ssl = pinfo->ssl;
+
 	int firstflg = 0;
 	if (evbase == NULL) {
 		evbase = event_base_new();
@@ -309,21 +317,27 @@ void commit_new_socket(int fd, SSL *ssl)
 	}
 
 	auto bev = bufferevent_openssl_socket_new(evbase, fd, ssl,
-					     BUFFEREVENT_SSL_OPEN,
-					     BEV_OPT_CLOSE_ON_FREE);
+						  BUFFEREVENT_SSL_OPEN,
+						  BEV_OPT_CLOSE_ON_FREE);
 
 	bufferevent_enable(bev, EV_READ);
 	bufferevent_enable(bev, EV_WRITE);
 	bufferevent_enable(bev, EV_TIMEOUT);
-	bufferevent_setcb(bev, ssl_readcb, NULL, ssl_timeout, ssl);
-	bufferevent_settimeout(bev, 5, 0);
+
+	event_node *pen = new event_node();
+	pen->pinfo = std::move(pinfo);
+	pen->timeout = 0;
+
+	bufferevent_setcb(bev, ssl_readcb, NULL, ssl_timeout, pen);
+	bufferevent_settimeout(bev, 2, 0);
 	char buf[] = "Hello, this is ECHO\n";
 	bufferevent_write(bev, buf, sizeof(buf));
 
 	if (firstflg) {
-		thread thread_eb(event_base_loop, evbase, 0);
+		thread thread_eb(event_base_loop, evbase, EVLOOP_NO_EXIT_ON_EMPTY);
 		thread_eb.detach();
 	}
+	return 0;
 }
 
 void connection_handle(unique_ptr<pass_info> pinfo)
@@ -340,6 +354,7 @@ void connection_handle(unique_ptr<pass_info> pinfo)
 	int verbose = 1;
 	int veryverbose = 1;
 	fd = socket(pinfo->client_addr.ss.ss_family, SOCK_DGRAM, 0);
+	pinfo->fd = fd;
 	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&on, (socklen_t)sizeof(on));
 	if (bind(fd, (const struct sockaddr *)&pinfo->server_addr, sizeof(struct sockaddr_in))) {
 		perror("bind");
@@ -361,10 +376,6 @@ void connection_handle(unique_ptr<pass_info> pinfo)
 		printf("%s\n", ERR_error_string(ERR_get_error(), buf));
 		goto cleanup;
 	}
-	/* Set and activate timeouts */
-	timeout.tv_sec = 5;
-	timeout.tv_usec = 0;
-	BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &timeout);
 
 	if (verbose) {
 		if (pinfo->client_addr.ss.ss_family == AF_INET) {
@@ -388,88 +399,10 @@ void connection_handle(unique_ptr<pass_info> pinfo)
 		printf("\n------------------------------------------------------------\n\n");
 	}
 
-	commit_new_socket(fd,ssl);
-	return;
-
-	while (!(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
-		reading = 1;
-		while (reading) {
-			len = SSL_read(ssl, buf, sizeof(buf));
-
-			switch (SSL_get_error(ssl, len)) {
-			case SSL_ERROR_NONE:
-				if (verbose) {
-					printf("Thread %lx: read %d bytes\n", pthread_self(), (int)len);
-				}
-				reading = 0;
-				break;
-			case SSL_ERROR_WANT_READ:
-				/* Handle socket timeouts */
-				if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP, 0, NULL)) {
-					unsigned char buff[8];
-					int ret = SSL_write(ssl, buff, 0);
-					printf("keepalive = %d\n",ret);
-					num_timeouts++;
-					reading = 0;
-				}
-				/* Just try again */
-				break;
-			case SSL_ERROR_ZERO_RETURN:
-				reading = 0;
-				break;
-			case SSL_ERROR_SYSCALL:
-				printf("Socket read error: ");
-				//if (!handle_socket_error())
-				//	goto cleanup;
-				reading = 0;
-				break;
-			case SSL_ERROR_SSL:
-				printf("SSL read error: ");
-				printf("%s (%d)\n", ERR_error_string(ERR_get_error(), buf), SSL_get_error(ssl, len));
-				goto cleanup;
-				break;
-			default:
-				printf("Unexpected error while reading!\n");
-				goto cleanup;
-				break;
-			}
-		}
-		if (len > 0) {
-			len = SSL_write(ssl, buf, len);
-
-			switch (SSL_get_error(ssl, len)) {
-			case SSL_ERROR_NONE:
-				if (verbose) {
-					printf("Thread %lx: wrote %d bytes\n", pthread_self(), (int)len);
-				}
-				break;
-			case SSL_ERROR_WANT_WRITE:
-				/* Can't write because of a renegotiation, so
-					 * we actually have to retry sending this message...
-					 */
-				break;
-			case SSL_ERROR_WANT_READ:
-				/* continue with reading */
-				break;
-			case SSL_ERROR_SYSCALL:
-				printf("Socket write error: ");
-				//if (!handle_socket_error())
-				//	goto cleanup;
-				reading = 0;
-				break;
-			case SSL_ERROR_SSL:
-				printf("SSL write error: ");
-				printf("%s (%d)\n", ERR_error_string(ERR_get_error(), buf), SSL_get_error(ssl, len));
-				goto cleanup;
-				break;
-			default:
-				printf("Unexpected error while writing!\n");
-				goto cleanup;
-				break;
-			}
-		}
+	ret = commit_new_socket(std::move(pinfo));
+	if (!ret) {
+		return;
 	}
-	SSL_shutdown(ssl);
 cleanup:
 	close(fd);
 	SSL_free(ssl);
@@ -519,9 +452,9 @@ int main(int argc, char **argv)
 
 		char addrbuf[1024];
 		printf("listen Thread %lx: accepted connection from %s:%d\n",
-			       pthread_self(),
-			       inet_ntop(AF_INET, &client.s4.sin_addr, addrbuf, INET6_ADDRSTRLEN),
-			       ntohs(client.s4.sin_port));
+		       pthread_self(),
+		       inet_ntop(AF_INET, &client.s4.sin_addr, addrbuf, INET6_ADDRSTRLEN),
+		       ntohs(client.s4.sin_port));
 
 		unique_ptr<pass_info> info = unique_ptr<pass_info>(new pass_info);
 		memcpy(&info->server_addr, &server, sizeof(struct sockaddr_storage));
