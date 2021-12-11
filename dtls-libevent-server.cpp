@@ -31,6 +31,7 @@ struct pass_info {
 
 struct event_node {
 	unique_ptr<pass_info> pinfo;
+	bufferevent *bev;
 	int timeout;
 };
 
@@ -284,6 +285,8 @@ void configure_context(SSL_CTX *ctx)
 static void
 ssl_readcb(struct bufferevent *bev, void *arg)
 {
+	event_node *pen = (event_node *)arg;
+	pen->timeout = 0;
 	//将输入缓存区的数据输出
 	struct evbuffer *in = bufferevent_get_input(bev);
 	printf("Received %zu bytes\n", evbuffer_get_length(in));
@@ -310,15 +313,12 @@ int commit_new_socket(unique_ptr<pass_info> pinfo)
 	int fd = pinfo->fd;
 	SSL *ssl = pinfo->ssl;
 
-	int firstflg = 0;
-	if (evbase == NULL) {
-		evbase = event_base_new();
-		firstflg = 1;
-	}
-
 	auto bev = bufferevent_openssl_socket_new(evbase, fd, ssl,
 						  BUFFEREVENT_SSL_OPEN,
 						  BEV_OPT_CLOSE_ON_FREE);
+	if (!bev) {
+		return -1;
+	}
 
 	bufferevent_enable(bev, EV_READ);
 	bufferevent_enable(bev, EV_WRITE);
@@ -327,16 +327,13 @@ int commit_new_socket(unique_ptr<pass_info> pinfo)
 	event_node *pen = new event_node();
 	pen->pinfo = std::move(pinfo);
 	pen->timeout = 0;
+	pen->bev = bev;
 
 	bufferevent_setcb(bev, ssl_readcb, NULL, ssl_timeout, pen);
 	bufferevent_settimeout(bev, 2, 0);
 	char buf[] = "Hello, this is ECHO\n";
 	bufferevent_write(bev, buf, sizeof(buf));
 
-	if (firstflg) {
-		thread thread_eb(event_base_loop, evbase, EVLOOP_NO_EXIT_ON_EMPTY);
-		thread_eb.detach();
-	}
 	return 0;
 }
 
@@ -413,6 +410,10 @@ cleanup:
 
 int main(int argc, char **argv)
 {
+	evbase = event_base_new();
+	thread thread_eb(event_base_loop, evbase, EVLOOP_NO_EXIT_ON_EMPTY);
+	thread_eb.detach();
+
 	int sock;
 	PEER server;
 	SSL_CTX *ctx;
