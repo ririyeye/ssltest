@@ -10,4 +10,5 @@ cp ssl-server ../
 cp dtls-server ../
 cp dtls-client ../
 cp dtls-libevent-server ../
+cp dtls-libuv-server ../
 cd -

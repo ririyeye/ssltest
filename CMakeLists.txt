@@ -52,3 +52,12 @@ target_link_libraries(dtls-libevent-server
 	event_openssl
 	pthread)
 
+add_executable(dtls-libuv-server dtls-libuv-server.cpp)
+
+target_link_libraries(dtls-libuv-server
+	PUBLIC
+	ssl
+	crypto
+	uv
+	pthread)	
+	

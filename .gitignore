@@ -4,3 +4,4 @@ ssl-client
 dtls-server
 dtls-client
 dtls-libevent-server
+dtls-libuv-server
