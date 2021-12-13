@@ -18,6 +18,18 @@ enum OVERLAPPED_TYPE{
 	SEND,
 };
 
+enum SOCKET_STSTUS {
+	NONE = 0x0,
+	ACCEPTING = 0x1,
+	CONNECTING = 0x2,
+	HANDSHAKING = 0x4,
+	CONNECTED = 0x8,
+	RECEIVING = 0x10,
+	SENDING = 0x20,
+	CLOSING = 0x40,
+	CLOSED = 0x80,
+};
+
 union PEER {
 	struct sockaddr_storage ss;
 	struct sockaddr_in6 s6;
@@ -38,11 +50,19 @@ struct my_uv_udp_t : public uv_udp_t {
 };
 
 struct my_uv_udp_t_subnode : public my_uv_udp_t {
+	my_uv_udp_t_subnode()
+	{
+		app_buff[SEND].resize(4096);
+		app_buff[RECV].resize(4096);
+	}
 	uv_timer_t *timer = nullptr;
 	struct sockaddr_in remote_addr;
 	int timeout_index = 0;
 	int index;
 	BIO *bio[2];
+	uint32_t status = NONE;
+	std::vector<char> app_buff[2];
+	int app_buff_len[2] = { 0 };
 };
 
 struct uv_udp_send_extend : public uv_udp_send_t {
@@ -97,10 +117,14 @@ int generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len)
 		}
 		cookie_initialized = 1;
 	}
-
+#if 0
 	/* Read peer information */
 	(void)BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
-
+#else
+	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)SSL_get_app_data(ssl);
+	peer.s4 = my_socket->remote_addr;
+	peer.ss.ss_family = AF_INET;
+#endif
 	/* Create buffer with peer's address and port */
 	length = 0;
 	switch (peer.ss.ss_family) {
@@ -165,9 +189,14 @@ int verify_cookie(SSL *ssl, const unsigned char *cookie, unsigned int cookie_len
 	if (!cookie_initialized)
 		return 0;
 
+#if 0
 	/* Read peer information */
 	(void)BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
-
+#else
+	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)SSL_get_app_data(ssl);
+	peer.s4 = my_socket->remote_addr;
+	peer.ss.ss_family = AF_INET;
+#endif
 	/* Create buffer with peer's address and port */
 	length = 0;
 	switch (peer.ss.ss_family) {
@@ -308,15 +337,51 @@ void recv_timeout(uv_timer_t *handle)
 	}
 }
 
+static void on_send(uv_udp_send_t* req, int status)
+{
+	delete req;
+    if (status) {
+        fprintf(stderr, "uv_udp_send_cb error: %s\n", uv_strerror(status));
+    }
+}
+
 void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
 {
 	if (len > 0) {
 		int bytes = BIO_write(psession->bio[RECV], buff, len);
 		int ssl_error = SSL_get_error(psession->ssl, bytes);
-		printf("ssl_error = %d\n",ssl_error);
+		printf("ssl_error = %d\n", ssl_error);
 		if (bytes == len) {
 		} else if (!BIO_should_retry(psession->bio[RECV])) {
 		}
+	}
+
+	if (psession->app_buff_len[RECV] == 0) {
+		int bytes = 0;
+		do {
+			char buff[4096];
+			bytes = SSL_read(psession->ssl, buff, 4096);
+			int ssl_error = SSL_get_error(psession->ssl, bytes);
+
+			if ((HANDSHAKING == (psession->status & HANDSHAKING)) && SSL_is_init_finished(psession->ssl)) {
+				psession->status &= ~HANDSHAKING;
+				psession->status |= CONNECTED;
+			}
+
+			if (ssl_error == SSL_ERROR_WANT_READ) {
+				uv_udp_send_extend *snd = new uv_udp_send_extend();
+				int wrlen = BIO_read(psession->bio[SEND], snd->buff, 4000);
+
+				if (wrlen > 0) {
+					uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
+					uv_udp_send(snd , psession, &buff, 1, 0, on_send);
+				}
+
+				printf("BIO_read = %d\n", wrlen);
+			}
+
+			printf("get ssl error = %d,byte = %d\n", ssl_error, bytes);
+		} while (bytes > 0);
 	}
 }
 
@@ -369,6 +434,7 @@ static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 
 		/* init new ssl */
 		my_socket->ssl = SSL_new(init_socket->ctx);
+		SSL_set_app_data(my_socket->ssl, my_socket);
 		/* set up the memory-buffer BIOs */
 		my_socket->bio[SEND] = BIO_new(BIO_s_mem());
 		my_socket->bio[RECV] = BIO_new(BIO_s_mem());
@@ -379,6 +445,7 @@ static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 		/* bind them together */
 		SSL_set_bio(my_socket->ssl, my_socket->bio[RECV], my_socket->bio[SEND]);
 		/* if on the client: SSL_set_connect_state(con); */
+		my_socket->status &= HANDSHAKING;
 		SSL_set_accept_state(my_socket->ssl);
 		SSL_set_options(my_socket->ssl, SSL_OP_COOKIE_EXCHANGE);
 
@@ -388,7 +455,7 @@ static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 		my_socket->timer = new uv_timer_t();
 		my_socket->timeout_index = 0;
 		my_socket->timer->data = my_socket;
-		uv_timer_init(init_socket->loop, my_socket->timer);
+		uv_timer_init(my_socket->loop, my_socket->timer);
 		uv_timer_start(my_socket->timer, recv_timeout, 2000, 2000);
 	}
 	delete [] buf->base;
@@ -426,7 +493,9 @@ int main(int argc, char **argv)
 
 	configure_context(ctx);
 
-	create_local_bind(loop, 20000);
+	my_uv_udp_t * pserver = create_local_bind(loop, 20000);
+
+	pserver->ctx = ctx;
 
 	uv_run(loop, UV_RUN_DEFAULT);
 #if 0
