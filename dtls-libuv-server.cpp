@@ -7,9 +7,17 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <uv.h>
 #include <memory>
 #include <thread>
+#include <vector>
 using namespace std;
+
+enum OVERLAPPED_TYPE{
+	RECV = 0,
+	SEND,
+};
+
 union PEER {
 	struct sockaddr_storage ss;
 	struct sockaddr_in6 s6;
@@ -21,30 +29,29 @@ struct pass_info {
 	SSL *ssl;
 };
 
-int create_socket(PEER &peer, int port)
-{
-	int s;
-	const int on = 1, off = 0;
+struct my_uv_udp_t : public uv_udp_t {
+	uv_loop_t *loop = nullptr;
+	struct sockaddr_in local_addr;
+	SSL_CTX *ctx = nullptr;
+	SSL *ssl = nullptr;
+	static int static_index;
+};
 
-	peer.s4.sin_family = AF_INET;
-	peer.s4.sin_port = htons(port);
-	peer.s4.sin_addr.s_addr = htonl(INADDR_ANY);
+struct my_uv_udp_t_subnode : public my_uv_udp_t {
+	uv_timer_t *timer = nullptr;
+	struct sockaddr_in remote_addr;
+	int timeout_index = 0;
+	int index;
+	BIO *bio[2];
+};
 
-	s = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s < 0) {
-		perror("Unable to create socket");
-		exit(EXIT_FAILURE);
-	}
+struct uv_udp_send_extend : public uv_udp_send_t {
+	char buff[4000];
+	int len = 0;
+	const int maxlen = 4000;
+};
 
-	setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const void *)&on, (socklen_t)sizeof(on));
-
-	if (bind(s, (struct sockaddr *)&peer, sizeof(sockaddr_in)) < 0) {
-		perror("Unable to bind");
-		exit(EXIT_FAILURE);
-	}
-
-	return s;
-}
+int my_uv_udp_t::static_index = 0;
 
 SSL_CTX *create_context()
 {
@@ -268,159 +275,145 @@ void configure_context(SSL_CTX *ctx)
 	SSL_CTX_set_cookie_verify_cb(ctx, &verify_cookie);
 }
 
-void connection_handle(unique_ptr<pass_info> pinfo)
+static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
 {
-#define BUFFER_SIZE (1 << 16)
-	ssize_t len;
-	char buf[BUFFER_SIZE];
-	char addrbuf[INET6_ADDRSTRLEN];
-	SSL *ssl = pinfo->ssl;
-	int fd, reading = 0, ret;
-	const int on = 1, off = 0;
-	struct timeval timeout;
-	int num_timeouts = 0, max_timeouts = 5;
-	int verbose = 1;
-	int veryverbose = 1;
-	fd = socket(pinfo->client_addr.ss.ss_family, SOCK_DGRAM, 0);
-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&on, (socklen_t)sizeof(on));
-	if (bind(fd, (const struct sockaddr *)&pinfo->server_addr, sizeof(struct sockaddr_in))) {
-		perror("bind");
-		goto cleanup;
-	}
-	if (connect(fd, (struct sockaddr *)&pinfo->client_addr, sizeof(struct sockaddr_in))) {
-		perror("connect");
-		goto cleanup;
-	}
-	/* Set new fd and set BIO to connected */
-	BIO_set_fd(SSL_get_rbio(ssl), fd, BIO_NOCLOSE);
-	BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_SET_CONNECTED, 0, &pinfo->client_addr.ss);
-	do {
-		ret = SSL_accept(ssl);
-	} while (ret == 0);
+	//struct my_uv_udp_t *init_socket = (struct my_uv_udp_t *)handle;
+	//printf("index = %d,malloc %d\n",init_socket->index, suggested_size);
+	(void)handle;
+	const int bufflen = suggested_size;
+	buf->base = new char[bufflen];
+	buf->len = bufflen;
+}
 
-	if (ret < 0) {
-		perror("SSL_accept");
-		printf("%s\n", ERR_error_string(ERR_get_error(), buf));
-		goto cleanup;
+void cloes_cb(uv_handle_t *handle)
+{
+	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)handle;
+	fprintf(stdout, "close index %d\n", my_socket->index);
+	if (my_socket->timer) {
+		delete my_socket->timer;
+		my_socket->timer = NULL;
 	}
-	/* Set and activate timeouts */
-	timeout.tv_sec = 5;
-	timeout.tv_usec = 0;
-	BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &timeout);
+	delete my_socket;
+}
 
-	if (verbose) {
-		if (pinfo->client_addr.ss.ss_family == AF_INET) {
-			printf("\nThread %lx: accepted connection from %s:%d\n",
-			       pthread_self(),
-			       inet_ntop(AF_INET, &pinfo->client_addr.s4.sin_addr, addrbuf, INET6_ADDRSTRLEN),
-			       ntohs(pinfo->client_addr.s4.sin_port));
-		} else {
-			printf("\nThread %lx: accepted connection from %s:%d\n",
-			       pthread_self(),
-			       inet_ntop(AF_INET6, &pinfo->client_addr.s6.sin6_addr, addrbuf, INET6_ADDRSTRLEN),
-			       ntohs(pinfo->client_addr.s6.sin6_port));
+void recv_timeout(uv_timer_t *handle)
+{
+	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)handle->data;
+	fprintf(stdout, "index %d timeout = %d\n", my_socket->index, ++my_socket->timeout_index);
+	if (my_socket->timeout_index > 5) {
+		fprintf(stdout, "try close index %d\n", my_socket->index);
+		uv_timer_stop(handle);
+		uv_unref((uv_handle_t *)handle);
+		uv_close((uv_handle_t *)my_socket, cloes_cb);
+	}
+}
+
+void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
+{
+	if (len > 0) {
+		int bytes = BIO_write(psession->bio[RECV], buff, len);
+		int ssl_error = SSL_get_error(psession->ssl, bytes);
+		printf("ssl_error = %d\n",ssl_error);
+		if (bytes == len) {
+		} else if (!BIO_should_retry(psession->bio[RECV])) {
 		}
 	}
+}
 
-	if (veryverbose && SSL_get_peer_certificate(ssl)) {
-		printf("------------------------------------------------------------\n");
-		X509_NAME_print_ex_fp(stdout, X509_get_subject_name(SSL_get_peer_certificate(ssl)),
-				      1, XN_FLAG_MULTILINE);
-		printf("\n\n Cipher: %s", SSL_CIPHER_get_name(SSL_get_current_cipher(ssl)));
-		printf("\n------------------------------------------------------------\n\n");
+static void on_read_ssl(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
+			const struct sockaddr *addr, unsigned flags)
+{
+	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)req;
+
+	session_process_recv(my_socket, buf->base, nread);
+
+	delete[] buf->base;
+}
+
+static void on_send_ssl(uv_udp_send_t *req, int status)
+{
+	delete req;
+	if (status) {
+		fprintf(stderr, "uv_udp_send_cb error: %s\n", uv_strerror(status));
+	}
+}
+
+
+
+static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
+			  const struct sockaddr *addr, unsigned flags)
+{
+	(void)flags;
+	if (nread < 0) {
+		fprintf(stderr, "Read error %s\n", uv_err_name(nread));
+		uv_close((uv_handle_t *)req, NULL);
+		free(buf->base);
+		return;
 	}
 
-	while (!(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
-		reading = 1;
-		while (reading) {
-			len = SSL_read(ssl, buf, sizeof(buf));
+	if (nread > 0) {
+		char sender[17] = { 0 };
+		struct my_uv_udp_t *init_socket = (struct my_uv_udp_t *)req;
+		uv_ip4_name((const struct sockaddr_in *)addr, sender, 16);
+		fprintf(stderr, "Recv first from %s,port=%d,%d\n", sender, ((struct sockaddr_in *)addr)->sin_port, nread);
+		//when first time recv,bind remote ip,port to new socket
+		my_uv_udp_t_subnode *my_socket = new my_uv_udp_t_subnode();
+		my_socket->loop = init_socket->loop;
+		my_socket->index = my_uv_udp_t::static_index++;
+		memcpy(&my_socket->local_addr, &init_socket->local_addr, sizeof(struct sockaddr_in));
 
-			switch (SSL_get_error(ssl, len)) {
-			case SSL_ERROR_NONE:
-				if (verbose) {
-					printf("Thread %lx: read %d bytes\n", pthread_self(), (int)len);
-				}
-				reading = 0;
-				break;
-			case SSL_ERROR_WANT_READ:
-				/* Handle socket timeouts */
-				if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP, 0, NULL)) {
-					unsigned char buff[8];
-					int ret = SSL_write(ssl, buff, 0);
-					printf("keepalive = %d\n",ret);
-					num_timeouts++;
-					reading = 0;
-				}
-				/* Just try again */
-				break;
-			case SSL_ERROR_ZERO_RETURN:
-				reading = 0;
-				break;
-			case SSL_ERROR_SYSCALL:
-				printf("Socket read error: ");
-				//if (!handle_socket_error())
-				//	goto cleanup;
-				reading = 0;
-				break;
-			case SSL_ERROR_SSL:
-				printf("SSL read error: ");
-				printf("%s (%d)\n", ERR_error_string(ERR_get_error(), buf), SSL_get_error(ssl, len));
-				goto cleanup;
-				break;
-			default:
-				printf("Unexpected error while reading!\n");
-				goto cleanup;
-				break;
-			}
-		}
-		if (len > 0) {
-			len = SSL_write(ssl, buf, len);
+		uv_udp_init(my_socket->loop, my_socket);
+		uv_udp_bind(my_socket, (sockaddr *)&my_socket->local_addr, UV_UDP_REUSEADDR);
+		uv_udp_connect(my_socket, (const struct sockaddr *)addr);
+		uv_udp_recv_start(my_socket, alloc_buffer, on_read_ssl);
 
-			switch (SSL_get_error(ssl, len)) {
-			case SSL_ERROR_NONE:
-				if (verbose) {
-					printf("Thread %lx: wrote %d bytes\n", pthread_self(), (int)len);
-				}
-				break;
-			case SSL_ERROR_WANT_WRITE:
-				/* Can't write because of a renegotiation, so
-					 * we actually have to retry sending this message...
-					 */
-				break;
-			case SSL_ERROR_WANT_READ:
-				/* continue with reading */
-				break;
-			case SSL_ERROR_SYSCALL:
-				printf("Socket write error: ");
-				//if (!handle_socket_error())
-				//	goto cleanup;
-				reading = 0;
-				break;
-			case SSL_ERROR_SSL:
-				printf("SSL write error: ");
-				printf("%s (%d)\n", ERR_error_string(ERR_get_error(), buf), SSL_get_error(ssl, len));
-				goto cleanup;
-				break;
-			default:
-				printf("Unexpected error while writing!\n");
-				goto cleanup;
-				break;
-			}
-		}
+		/* init new ssl */
+		my_socket->ssl = SSL_new(init_socket->ctx);
+		/* set up the memory-buffer BIOs */
+		my_socket->bio[SEND] = BIO_new(BIO_s_mem());
+		my_socket->bio[RECV] = BIO_new(BIO_s_mem());
+
+		BIO_set_mem_eof_return(my_socket->bio[SEND], -1);
+		BIO_set_mem_eof_return(my_socket->bio[RECV], -1);
+
+		/* bind them together */
+		SSL_set_bio(my_socket->ssl, my_socket->bio[RECV], my_socket->bio[SEND]);
+		/* if on the client: SSL_set_connect_state(con); */
+		SSL_set_accept_state(my_socket->ssl);
+		SSL_set_options(my_socket->ssl, SSL_OP_COOKIE_EXCHANGE);
+
+		session_process_recv(my_socket, buf->base, nread);
+
+		/* at this point buf will store the results (with a length of rc) */
+		my_socket->timer = new uv_timer_t();
+		my_socket->timeout_index = 0;
+		my_socket->timer->data = my_socket;
+		uv_timer_init(init_socket->loop, my_socket->timer);
+		uv_timer_start(my_socket->timer, recv_timeout, 2000, 2000);
 	}
-	SSL_shutdown(ssl);
-cleanup:
-	close(fd);
-	SSL_free(ssl);
-	if (verbose) {
-		printf("Thread %lx: done, connection closed.\n", pthread_self());
-	}
+	delete [] buf->base;
+}
+
+my_uv_udp_t *create_local_bind(uv_loop_t *loop, int port)
+{
+	my_uv_udp_t *ret = new my_uv_udp_t();
+
+	ret->loop = loop;
+
+	uv_ip4_addr("0.0.0.0", port, &ret->local_addr);
+
+	uv_udp_init(loop, ret);
+
+	uv_udp_bind(ret, (const struct sockaddr *)&ret->local_addr, UV_UDP_REUSEADDR);
+	uv_udp_recv_start(ret, alloc_buffer, on_read_first);
+
+	return ret;
 }
 
 int main(int argc, char **argv)
 {
-	int sock;
-	PEER server;
+	uv_loop_t *loop = uv_default_loop();
+
 	SSL_CTX *ctx;
 
 	SSL_library_init();
@@ -433,28 +426,13 @@ int main(int argc, char **argv)
 
 	configure_context(ctx);
 
-	sock = create_socket(server, 20000);
+	create_local_bind(loop, 20000);
 
+	uv_run(loop, UV_RUN_DEFAULT);
+#if 0
 	/* Handle connections */
 	while (1) {
 		PEER client;
-		unsigned int len = sizeof(client);
-		memset(&client, 0, sizeof(sockaddr_in));
-		BIO *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
-		timeval timeout;
-		timeout.tv_sec = 5;
-		timeout.tv_usec = 0;
-		BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &timeout);
-
-		SSL *ssl;
-
-		ssl = SSL_new(ctx);
-
-		SSL_set_bio(ssl, bio, bio);
-		SSL_set_options(ssl, SSL_OP_COOKIE_EXCHANGE);
-
-		while (DTLSv1_listen(ssl, (BIO_ADDR *)&client) <= 0) {
-		}
 
 		char addrbuf[1024];
 		printf("listen Thread %lx: accepted connection from %s:%d\n",
@@ -472,4 +450,5 @@ int main(int argc, char **argv)
 
 	close(sock);
 	SSL_CTX_free(ctx);
+#endif
 }

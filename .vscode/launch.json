@@ -8,7 +8,7 @@
             "name": "g++ - Build and debug active file",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/dtls-libevent-server",
+            "program": "${workspaceFolder}/dtls-libuv-server",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
