@@ -11,9 +11,10 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <list>
 using namespace std;
 
-enum OVERLAPPED_TYPE{
+enum OVERLAPPED_TYPE {
 	RECV = 0,
 	SEND,
 };
@@ -50,19 +51,14 @@ struct my_uv_udp_t : public uv_udp_t {
 };
 
 struct my_uv_udp_t_subnode : public my_uv_udp_t {
-	my_uv_udp_t_subnode()
-	{
-		app_buff[SEND].resize(4096);
-		app_buff[RECV].resize(4096);
-	}
 	uv_timer_t *timer = nullptr;
 	struct sockaddr_in remote_addr;
 	int timeout_index = 0;
 	int index;
 	BIO *bio[2];
 	uint32_t status = NONE;
-	std::vector<char> app_buff[2];
-	int app_buff_len[2] = { 0 };
+	list<vector<char> > app_recv;
+	list<vector<char> > app_send;
 };
 
 struct uv_udp_send_extend : public uv_udp_send_t {
@@ -94,7 +90,7 @@ SSL_CTX *create_context()
 
 static int pass(char *buf, int size, int rwflag, void *userdata)
 {
-	char *pass = "12138";
+	const char *pass = "12138";
 	strncpy(buf, (char *)pass, size);
 	buf[strlen(pass)] = '\0';
 	return strlen(pass);
@@ -337,12 +333,9 @@ void recv_timeout(uv_timer_t *handle)
 	}
 }
 
-static void on_send(uv_udp_send_t* req, int status)
+static void on_send(uv_udp_send_t *req, int status)
 {
 	delete req;
-    if (status) {
-        fprintf(stderr, "uv_udp_send_cb error: %s\n", uv_strerror(status));
-    }
 }
 
 void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
@@ -350,45 +343,50 @@ void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
 	if (len > 0) {
 		int bytes = BIO_write(psession->bio[RECV], buff, len);
 		int ssl_error = SSL_get_error(psession->ssl, bytes);
-		printf("ssl_error = %d\n", ssl_error);
 		if (bytes == len) {
 		} else if (!BIO_should_retry(psession->bio[RECV])) {
+			printf("ssl_error = %d!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", ssl_error);
 		}
 	}
 
-	if (psession->app_buff_len[RECV] == 0) {
-		int bytes = 0;
-		do {
-			char buff[4096];
-			bytes = SSL_read(psession->ssl, buff, 4096);
-			int ssl_error = SSL_get_error(psession->ssl, bytes);
+	int bytes = 0;
+	do {
+		char buff[4096];
+		bytes = SSL_read(psession->ssl, buff, 4096);
+		int ssl_error = SSL_get_error(psession->ssl, bytes);
 
-			if ((HANDSHAKING == (psession->status & HANDSHAKING)) && SSL_is_init_finished(psession->ssl)) {
-				psession->status &= ~HANDSHAKING;
-				psession->status |= CONNECTED;
+		if (bytes > 0) {
+			psession->app_recv.emplace_back(buff, buff + bytes);
+			printf("get data %d = %s\n", bytes, buff);
+		}
+
+		if ((HANDSHAKING == (psession->status & HANDSHAKING)) && SSL_is_init_finished(psession->ssl)) {
+			psession->status &= ~HANDSHAKING;
+			psession->status |= CONNECTED;
+		}
+
+		if (ssl_error == SSL_ERROR_WANT_READ || ssl_error == SSL_ERROR_WANT_WRITE) {
+			uv_udp_send_extend *snd = new uv_udp_send_extend();
+			int wrlen = BIO_read(psession->bio[SEND], snd->buff, 4000);
+
+			if (wrlen > 0) {
+				uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
+				uv_udp_send(snd, psession, &buff, 1, 0, on_send);
+				return;
 			}
+		}
 
-			if (ssl_error == SSL_ERROR_WANT_READ) {
-				uv_udp_send_extend *snd = new uv_udp_send_extend();
-				int wrlen = BIO_read(psession->bio[SEND], snd->buff, 4000);
-
-				if (wrlen > 0) {
-					uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
-					uv_udp_send(snd , psession, &buff, 1, 0, on_send);
-				}
-
-				printf("BIO_read = %d\n", wrlen);
-			}
-
-			printf("get ssl error = %d,byte = %d\n", ssl_error, bytes);
-		} while (bytes > 0);
-	}
+		printf("get ssl error = %d,byte = %d\n", ssl_error, bytes);
+	} while (bytes > 0);
 }
 
 static void on_read_ssl(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 			const struct sockaddr *addr, unsigned flags)
 {
 	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)req;
+
+	my_socket->timeout_index = 0;
+	uv_timer_again(my_socket->timer);
 
 	session_process_recv(my_socket, buf->base, nread);
 
@@ -402,8 +400,6 @@ static void on_send_ssl(uv_udp_send_t *req, int status)
 		fprintf(stderr, "uv_udp_send_cb error: %s\n", uv_strerror(status));
 	}
 }
-
-
 
 static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 			  const struct sockaddr *addr, unsigned flags)
@@ -420,7 +416,7 @@ static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 		char sender[17] = { 0 };
 		struct my_uv_udp_t *init_socket = (struct my_uv_udp_t *)req;
 		uv_ip4_name((const struct sockaddr_in *)addr, sender, 16);
-		fprintf(stderr, "Recv first from %s,port=%d,%d\n", sender, ((struct sockaddr_in *)addr)->sin_port, nread);
+		fprintf(stderr, "Recv first from %s,port=%d,%ld\n", sender, ((struct sockaddr_in *)addr)->sin_port, nread);
 		//when first time recv,bind remote ip,port to new socket
 		my_uv_udp_t_subnode *my_socket = new my_uv_udp_t_subnode();
 		my_socket->loop = init_socket->loop;
@@ -445,11 +441,9 @@ static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 		/* bind them together */
 		SSL_set_bio(my_socket->ssl, my_socket->bio[RECV], my_socket->bio[SEND]);
 		/* if on the client: SSL_set_connect_state(con); */
-		my_socket->status &= HANDSHAKING;
+		my_socket->status |= HANDSHAKING;
 		SSL_set_accept_state(my_socket->ssl);
 		SSL_set_options(my_socket->ssl, SSL_OP_COOKIE_EXCHANGE);
-
-		session_process_recv(my_socket, buf->base, nread);
 
 		/* at this point buf will store the results (with a length of rc) */
 		my_socket->timer = new uv_timer_t();
@@ -457,8 +451,11 @@ static void on_read_first(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 		my_socket->timer->data = my_socket;
 		uv_timer_init(my_socket->loop, my_socket->timer);
 		uv_timer_start(my_socket->timer, recv_timeout, 2000, 2000);
+
+		/* setup end,start handshaking */
+		session_process_recv(my_socket, buf->base, nread);
 	}
-	delete [] buf->base;
+	delete[] buf->base;
 }
 
 my_uv_udp_t *create_local_bind(uv_loop_t *loop, int port)
@@ -493,31 +490,10 @@ int main(int argc, char **argv)
 
 	configure_context(ctx);
 
-	my_uv_udp_t * pserver = create_local_bind(loop, 20000);
+	my_uv_udp_t *pserver = create_local_bind(loop, 20000);
 
 	pserver->ctx = ctx;
 
 	uv_run(loop, UV_RUN_DEFAULT);
-#if 0
-	/* Handle connections */
-	while (1) {
-		PEER client;
 
-		char addrbuf[1024];
-		printf("listen Thread %lx: accepted connection from %s:%d\n",
-			       pthread_self(),
-			       inet_ntop(AF_INET, &client.s4.sin_addr, addrbuf, INET6_ADDRSTRLEN),
-			       ntohs(client.s4.sin_port));
-
-		unique_ptr<pass_info> info = unique_ptr<pass_info>(new pass_info);
-		memcpy(&info->server_addr, &server, sizeof(struct sockaddr_storage));
-		memcpy(&info->client_addr, &client, sizeof(struct sockaddr_storage));
-		info->ssl = ssl;
-		thread p(connection_handle, std::move(info));
-		p.detach();
-	}
-
-	close(sock);
-	SSL_CTX_free(ctx);
-#endif
 }
