@@ -312,30 +312,76 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 
 void cloes_cb(uv_handle_t *handle)
 {
+	//结束并释放资源
 	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)handle;
 	fprintf(stdout, "close index %d\n", my_socket->index);
 	if (my_socket->timer) {
 		delete my_socket->timer;
 		my_socket->timer = NULL;
 	}
+	//关闭ssl 释放资源
+	SSL_free(my_socket->ssl);
 	delete my_socket;
+}
+
+static void on_send(uv_udp_send_t *req, int status)
+{
+	delete req;
+}
+
+int shut_down_phase(my_uv_udp_t_subnode *my_socket)
+{
+	int ret_shutdown = SSL_shutdown(my_socket->ssl);
+	printf("try to shut down ssl index = %d\n", my_socket->index);
+	//1 成功 其他需要检查错误信息
+	if (ret_shutdown == 1) {
+		//shutdown 成功,等待socket 关闭
+		return 0;
+	}
+
+	if (ret_shutdown == 0) {
+		ret_shutdown = SSL_shutdown(my_socket->ssl);
+		printf("ret_shutdown = %d\n", ret_shutdown);
+	}
+
+	int error_code = SSL_get_error(my_socket->ssl, ret_shutdown);
+	printf("shutdown error ret = %d,error = %d\n", ret_shutdown, error_code);
+	if (error_code == SSL_ERROR_WANT_WRITE || error_code == SSL_ERROR_WANT_READ) {
+		uv_udp_send_extend *snd = new uv_udp_send_extend();
+		int wrlen = BIO_read(my_socket->bio[SEND], snd->buff, 4000);
+		if (wrlen > 0) {
+			uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
+			uv_udp_send(snd, my_socket, &buff, 1, 0, on_send);
+			return -1;
+		}
+	}
+	return -1;
 }
 
 void recv_timeout(uv_timer_t *handle)
 {
 	my_uv_udp_t_subnode *my_socket = (my_uv_udp_t_subnode *)handle->data;
 	fprintf(stdout, "index %d timeout = %d\n", my_socket->index, ++my_socket->timeout_index);
+	int can_close = 0;
 	if (my_socket->timeout_index > 5) {
+		if (my_socket->status & CONNECTED) {
+			my_socket->status &= ~CONNECTED;
+			my_socket->status |= CLOSING;
+			my_socket->timeout_index = 0; //重置时间
+			int ret = shut_down_phase(my_socket);
+			if (ret == 0) {
+				can_close = 1;
+			}
+		} else {
+			can_close = 1;
+		}
+	}
+	if (can_close) {
 		fprintf(stdout, "try close index %d\n", my_socket->index);
 		uv_timer_stop(handle);
 		uv_unref((uv_handle_t *)handle);
 		uv_close((uv_handle_t *)my_socket, cloes_cb);
 	}
-}
-
-static void on_send(uv_udp_send_t *req, int status)
-{
-	delete req;
 }
 
 void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
@@ -378,6 +424,27 @@ void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
 
 		printf("get ssl error = %d,byte = %d\n", ssl_error, bytes);
 	} while (bytes > 0);
+
+	if ((psession->status & CONNECTED) == CONNECTED && psession->app_recv.size()) {
+		auto itr = psession->app_recv.begin();
+		int wrlen = SSL_write(psession->ssl, &itr->at(0), itr->size());
+		int ssl_error = SSL_get_error(psession->ssl, wrlen);
+
+		if (wrlen == itr->size()) {
+			psession->app_recv.pop_front();
+		}
+
+		if (ssl_error == SSL_ERROR_WANT_READ || ssl_error == SSL_ERROR_WANT_WRITE) {
+			uv_udp_send_extend *snd = new uv_udp_send_extend();
+			int wrlen = BIO_read(psession->bio[SEND], snd->buff, 4000);
+
+			if (wrlen > 0) {
+				uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
+				uv_udp_send(snd, psession, &buff, 1, 0, on_send);
+				return;
+			}
+		}
+	}
 }
 
 static void on_read_ssl(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
@@ -388,8 +455,20 @@ static void on_read_ssl(uv_udp_t *req, ssize_t nread, const uv_buf_t *buf,
 	my_socket->timeout_index = 0;
 	uv_timer_again(my_socket->timer);
 
-	session_process_recv(my_socket, buf->base, nread);
-
+	if ((my_socket->status & CLOSING) == CLOSING) {
+		int bytes = BIO_write(my_socket->bio[RECV], buf->base, nread);
+		
+		int ret = shut_down_phase(my_socket);
+		//ssl shutdown 完成
+		if (ret == 0) {
+			fprintf(stdout, "try close index %d\n", my_socket->index);
+			uv_timer_stop(my_socket->timer);
+			uv_unref((uv_handle_t *)my_socket->timer);
+			uv_close((uv_handle_t *)my_socket, cloes_cb);
+		}
+	} else {
+		session_process_recv(my_socket, buf->base, nread);
+	}
 	delete[] buf->base;
 }
 
@@ -495,5 +574,4 @@ int main(int argc, char **argv)
 	pserver->ctx = ctx;
 
 	uv_run(loop, UV_RUN_DEFAULT);
-
 }
