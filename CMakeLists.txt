@@ -59,5 +59,14 @@ target_link_libraries(dtls-libuv-server
 	ssl
 	crypto
 	uv
-	pthread)	
-	
+	pthread)
+
+add_executable(dtls-mbed-server dtls-mbed-server.cpp)
+
+target_link_libraries(dtls-mbed-server
+	PUBLIC
+	mbedtls
+	mbedx509
+	mbedcrypto
+	uv
+	pthread)
