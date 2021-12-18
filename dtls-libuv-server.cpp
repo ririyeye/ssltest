@@ -329,6 +329,23 @@ static void on_send(uv_udp_send_t *req, int status)
 	delete req;
 }
 
+int send_bio_data(my_uv_udp_t_subnode *my_socket)
+{
+	int num = BIO_pending(my_socket->bio[SEND]);
+	if (num <= 0) {
+		return -1;
+	}
+
+	uv_udp_send_extend *snd = new uv_udp_send_extend();
+	int wrlen = BIO_read(my_socket->bio[SEND], snd->buff, 4000);
+	if (wrlen > 0) {
+		uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
+		uv_udp_send(snd, my_socket, &buff, 1, 0, on_send);
+		return 0;
+	}
+	return -2;
+}
+
 int shut_down_phase(my_uv_udp_t_subnode *my_socket)
 {
 	int ret_shutdown = SSL_shutdown(my_socket->ssl);
@@ -347,13 +364,7 @@ int shut_down_phase(my_uv_udp_t_subnode *my_socket)
 	int error_code = SSL_get_error(my_socket->ssl, ret_shutdown);
 	printf("shutdown error ret = %d,error = %d\n", ret_shutdown, error_code);
 	if (error_code == SSL_ERROR_WANT_WRITE || error_code == SSL_ERROR_WANT_READ) {
-		uv_udp_send_extend *snd = new uv_udp_send_extend();
-		int wrlen = BIO_read(my_socket->bio[SEND], snd->buff, 4000);
-		if (wrlen > 0) {
-			uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
-			uv_udp_send(snd, my_socket, &buff, 1, 0, on_send);
-			return -1;
-		}
+		send_bio_data(my_socket);
 	}
 	return -1;
 }
@@ -412,14 +423,7 @@ void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
 		}
 
 		if (ssl_error == SSL_ERROR_WANT_READ || ssl_error == SSL_ERROR_WANT_WRITE) {
-			uv_udp_send_extend *snd = new uv_udp_send_extend();
-			int wrlen = BIO_read(psession->bio[SEND], snd->buff, 4000);
-
-			if (wrlen > 0) {
-				uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
-				uv_udp_send(snd, psession, &buff, 1, 0, on_send);
-				return;
-			}
+			send_bio_data(psession);
 		}
 
 		printf("get ssl error = %d,byte = %d\n", ssl_error, bytes);
@@ -435,14 +439,7 @@ void session_process_recv(my_uv_udp_t_subnode *psession, char *buff, int len)
 		}
 
 		if (ssl_error == SSL_ERROR_WANT_READ || ssl_error == SSL_ERROR_WANT_WRITE) {
-			uv_udp_send_extend *snd = new uv_udp_send_extend();
-			int wrlen = BIO_read(psession->bio[SEND], snd->buff, 4000);
-
-			if (wrlen > 0) {
-				uv_buf_t buff = uv_buf_init(snd->buff, wrlen);
-				uv_udp_send(snd, psession, &buff, 1, 0, on_send);
-				return;
-			}
+			send_bio_data(psession);
 		}
 	}
 }
