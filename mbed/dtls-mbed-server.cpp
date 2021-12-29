@@ -52,7 +52,7 @@ unique_ptr<mbed_context> dtls_main(void)
 	}
 
 
-	ret = mbedtls_x509_crt_parse_file(&pmc->cacert, "/ca.cer");
+	ret = mbedtls_x509_crt_parse_file(&pmc->cacert, "ca/ca.cer");
 
 	if (ret < 0) {
 		mbedtls_printf(" failed\n  !  mbedtls_x509_crt_parse returned -0x%x\n\n", -ret);
@@ -75,19 +75,6 @@ unique_ptr<mbed_context> dtls_main(void)
 	mbedtls_ssl_conf_rng(&pmc->conf, mbedtls_ctr_drbg_random, &pmc->ctr_drbg);
 	mbedtls_ssl_conf_dbg(&pmc->conf, my_debug, stdout);
 #if 0
-	if ((ret = mbedtls_ssl_setup(&ssl, &conf)) != 0) {
-		mbedtls_printf(" failed\n  ! mbedtls_ssl_setup returned %d\n\n", ret);
-		goto exit;
-	}
-	//不要去验证,mbedtls统配有问题 只能添加固定host
-#if 0
-	if ((ret = mbedtls_ssl_set_hostname(&ssl, "server.kvm")) != 0) {
-		mbedtls_printf(" failed\n  ! mbedtls_ssl_set_hostname returned %d\n\n", ret);
-		goto exit;
-	}
-#endif
-	mbedtls_ssl_set_bio(&ssl, &server_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
-
 	/*
      * 4. Handshake
      */

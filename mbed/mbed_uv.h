@@ -5,7 +5,7 @@
 #include <mbedtls/ssl.h>
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
-
+#include <list>
 struct mbed_context {
 	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
@@ -21,12 +21,19 @@ struct mbed_context {
 	}
 };
 
-struct uv_mbed_context{
-
-	mbedtls_ssl_context ssl;
+struct rcv_buf {
+	char *buff;
+	int startpos;
+	int datelen;
+	int bufflen;
 };
 
-
+struct uv_ssl_context {
+	mbedtls_ssl_context ssl;
+	int handshake;
+	mbed_context *ctx;
+	std::list<rcv_buf> rcv_bio_list;
+};
 
 #endif
 

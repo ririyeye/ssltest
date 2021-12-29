@@ -8,7 +8,7 @@
             "name": "g++ - Build and debug active file",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/dtls-libuv-server",
+            "program": "${workspaceFolder}/dtls-mbed-server",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -21,6 +21,7 @@
                     "ignoreFailures": true
                 }
             ],
+            "preLaunchTask": "cppbuild",
             "miDebuggerPath": "/usr/bin/gdb"
         }
     ]
