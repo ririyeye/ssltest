@@ -26,17 +26,15 @@ struct uv_ssl_context;
 typedef void (*uv_ssl_read_cb)(uv_ssl_context *pssl,
 			       ssize_t nread,
 			       const char *buff);
-typedef void (*uv_ssl_close_cb)(uv_ssl_context *pssl);
 
 int uv_ssl_write(uv_ssl_context *pssl,
 		 ssize_t nread,
 		 const char *buff);
 
-typedef void (*uv_ssl_handshake_cb)(uv_ssl_context *pssl,
-				    int status);
+typedef void (*uv_ssl_event_cb)(uv_ssl_context *pssl, int status);
 
 void uv_ssl_close(uv_ssl_context *pssl);
-int uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_handshake_cb connect_cb);
+int uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_event_cb event_cb);
 
 struct uv_ssl_context {
 	mbedtls_ssl_context ssl;
@@ -44,9 +42,9 @@ struct uv_ssl_context {
 	mbed_context *pconf;
 	std::list<rcv_buf> rcv_bio_list;
 	uv_ssl_read_cb rd_cb = nullptr;
-	uv_ssl_handshake_cb handshake_cb = nullptr;
-	uv_ssl_close_cb close_cb = nullptr;
+	uv_ssl_event_cb event_cb = nullptr;
 	uv_stream_t *phandle;
+	void * data;
 };
 
 #endif

@@ -27,27 +27,16 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 	buf->len = bufflen;
 }
 
-void uv_close_cb_mbed(uv_handle_t *handle)
-{
-	uv_tcp_t *stream = (uv_tcp_t *)handle;
-
-	uv_ssl_context *ctx = (uv_ssl_context *)stream->data;
-
-	if(ctx->close_cb) {
-		ctx->close_cb(ctx);
-	}
-
-	mbedtls_ssl_free(&ctx->ssl);
-
-	delete ctx;
-}
-
 void uv_ssl_close(uv_ssl_context *ssl)
 {
 	ssl->sta = ssl_closing;
 	int ret = mbedtls_ssl_close_notify(&ssl->ssl);
 	if (ret == 0) {
-		uv_close((uv_handle_t *)ssl->phandle, uv_close_cb_mbed);
+		if (ssl->event_cb) {
+			ssl->event_cb(ssl, ssl_closing);
+			mbedtls_ssl_free(&ssl->ssl);
+			delete ssl;
+		}
 	}
 }
 
@@ -67,8 +56,8 @@ void uv_ssl_handshake(uv_ssl_context *pctx)
 	if (ret == 0) {
 		pctx->sta = ssl_connected;
 
-		if (pctx->handshake_cb) {
-			pctx->handshake_cb(pctx, 0);
+		if (pctx->event_cb) {
+			pctx->event_cb(pctx, ssl_connected);
 		} else {
 			uv_ssl_close(pctx);
 		}
@@ -91,10 +80,7 @@ void uv_read_cb_bio(uv_stream_t *stream,
 		if (ctx->sta == ssl_handshake) {
 			uv_ssl_handshake(ctx);
 		} else if (ctx->sta == ssl_closing) {
-			int ret = mbedtls_ssl_close_notify(&ctx->ssl);
-			if (ret == 0) {
-				uv_close((uv_handle_t *)stream, uv_close_cb_mbed);
-			}
+			uv_ssl_close(ctx);
 		} else {
 			unsigned char tmpbuff[4096];
 			int len;
@@ -105,10 +91,7 @@ void uv_read_cb_bio(uv_stream_t *stream,
 						ctx->rd_cb(ctx, len, (char *)tmpbuff);
 					}
 				} else if (len == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
-					int ret = mbedtls_ssl_close_notify(&ctx->ssl);
-					if (ret == 0) {
-						uv_close((uv_handle_t *)ctx->phandle, uv_close_cb_mbed);
-					}
+					uv_ssl_close(ctx);
 					break;
 				} else {
 					break;
@@ -124,11 +107,7 @@ void uv_read_cb_bio(uv_stream_t *stream,
 			delete[] buf->base;
 		}
 		if (ctx->sta == ssl_connected) {
-			ctx->sta = ssl_closing;
-			int ret = mbedtls_ssl_close_notify(&ctx->ssl);
-			if (ret == 0) {
-				uv_close((uv_handle_t *)stream, uv_close_cb_mbed);
-			}
+			uv_ssl_close(ctx);
 		}
 	}
 }
@@ -169,7 +148,7 @@ int mbedtls_ssl_recv_bio(void *ctx,
 	return 0;
 }
 
-int uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_handshake_cb handshake_cb)
+int uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_event_cb event_cb)
 {
 	uv_ssl_context *pssl = new uv_ssl_context();
 	pssl->pconf = pctx;
@@ -191,7 +170,7 @@ int uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_handshake_cb 
 #endif
 	pssl->phandle = phandle;
 	pssl->sta = ssl_handshake;
-	pssl->handshake_cb = handshake_cb;
+	pssl->event_cb = event_cb;
 	uv_read_start(phandle, alloc_buffer, uv_read_cb_bio);
 	mbedtls_ssl_set_bio(&pssl->ssl, phandle, mbedtls_ssl_send_bio, mbedtls_ssl_recv_bio, nullptr);
 

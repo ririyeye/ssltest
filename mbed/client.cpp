@@ -26,15 +26,20 @@ void ssl_read_cb(uv_ssl_context *ssl,
 	}
 }
 
-void on_handshake(uv_ssl_context *pssl, int status)
+void close_cb(uv_handle_t *handle)
 {
-	if (status == 0) {
+	uv_tcp_t *pclient = (uv_tcp_t *)handle;
+	delete handle;
+}
+
+void on_event(uv_ssl_context *pssl, int status)
+{
+	if (status == ssl_connected) {
 		int ret = mbedtls_ssl_get_verify_result(&pssl->ssl);
 		printf("handshake ok \n");
 		pssl->rd_cb = ssl_read_cb;
-		pssl->close_cb = [](uv_ssl_context* pssl) {
-			delete (uv_tcp_t*)pssl->phandle;
-		};
+	} else if (status == ssl_closing) {
+		uv_close((uv_handle_t *)pssl->phandle, close_cb);
 	}
 }
 
@@ -45,7 +50,7 @@ void connect_cb(uv_connect_t *req, int status)
 		delete req;
 		return;
 	}
-	uv_create_ssl(req->handle, (mbed_context *)req->data, on_handshake);
+	uv_create_ssl(req->handle, (mbed_context *)req->data, on_event);
 	delete req;
 }
 
