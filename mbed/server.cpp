@@ -21,6 +21,8 @@ void ssl_read_cb(uv_ssl_context *ssl,
 {
 	printf("get buff = %ld,%s\n", nread, buff);
 
+	uv_ssl_write(ssl, nread, buff);
+
 	if (!strncmp("close", buff, 5)) {
 		uv_ssl_close(ssl);
 	}
@@ -31,6 +33,9 @@ void on_handshake(uv_ssl_context *pssl, int status)
 	if (status == 0) {
 		printf("handshake ok \n");
 		pssl->rd_cb = ssl_read_cb;
+		pssl->close_cb = [](uv_ssl_context* pssl) {
+			delete (uv_tcp_t*)pssl->phandle;
+		};
 	}
 }
 

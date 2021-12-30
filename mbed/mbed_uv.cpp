@@ -33,11 +33,13 @@ void uv_close_cb_mbed(uv_handle_t *handle)
 
 	uv_ssl_context *ctx = (uv_ssl_context *)stream->data;
 
+	if(ctx->close_cb) {
+		ctx->close_cb(ctx);
+	}
+
 	mbedtls_ssl_free(&ctx->ssl);
 
 	delete ctx;
-
-	delete stream;
 }
 
 void uv_ssl_close(uv_ssl_context *ssl)
