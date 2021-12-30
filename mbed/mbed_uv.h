@@ -28,11 +28,25 @@ struct rcv_buf {
 	int bufflen;
 };
 
+enum ssl_stat {
+	ssl_none = 0,
+	ssl_handshake,
+	ssl_handshake_ok,
+	ssh_closing,
+};
+
+
+struct uv_ssl_context;
+typedef void (*uv_ssl_read_cb)(uv_ssl_context *stream,
+			   ssize_t nread,
+			   const char * buff);
+
 struct uv_ssl_context {
 	mbedtls_ssl_context ssl;
-	int handshake = -1; ///0表示握手完成
+	ssl_stat sta = ssl_none;
 	mbed_context *ctx;
 	std::list<rcv_buf> rcv_bio_list;
+	uv_ssl_read_cb rd_cb = nullptr;
 };
 
 #endif

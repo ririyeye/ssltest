@@ -27,12 +27,25 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 	buf->len = bufflen;
 }
 
+void uv_close_cb_mbed(uv_handle_t *handle)
+{
+	uv_tcp_t *stream = (uv_tcp_t *)handle;
+
+	uv_ssl_context *ctx = (uv_ssl_context *)stream->data;
+
+	mbedtls_ssl_free(&ctx->ssl);
+
+	delete ctx;
+
+	delete stream;
+}
+
 void uv_read_cb_bio(uv_stream_t *stream,
 		    ssize_t nread,
 		    const uv_buf_t *buf)
 {
+	uv_ssl_context *ctx = (uv_ssl_context *)stream->data;
 	if (nread > 0) {
-		uv_ssl_context *ctx = (uv_ssl_context *)stream->data;
 		rcv_buf tmp;
 		tmp.buff = buf->base;
 		tmp.bufflen = buf->len;
@@ -40,19 +53,40 @@ void uv_read_cb_bio(uv_stream_t *stream,
 		tmp.startpos = 0;
 		ctx->rcv_bio_list.emplace_back(tmp);
 
-		if (ctx->handshake != 0) {
-			ctx->handshake = mbedtls_ssl_handshake(&ctx->ssl);
+		if (ctx->sta == ssl_handshake) {
+			int ret = mbedtls_ssl_handshake(&ctx->ssl);
+			if (ret == 0) {
+				ctx->sta = ssl_handshake_ok;
+			}
+		} else if (ctx->sta == ssh_closing) {
+			int ret = mbedtls_ssl_close_notify(&ctx->ssl);
+			if (ret == 0) {
+				uv_close((uv_handle_t *)stream, uv_close_cb_mbed);
+			}
 		} else {
-			unsigned char tmpbuff[128];
+			unsigned char tmpbuff[4096];
 			int len;
-			do {
-				memset(tmpbuff, 0, 128);
-				len = mbedtls_ssl_read(&ctx->ssl, tmpbuff, 128);
-				printf("get dat = %s\n", tmpbuff);
+			while (true) {
+				len = mbedtls_ssl_read(&ctx->ssl, tmpbuff, 4096);
 				if (len > 0) {
-					mbedtls_ssl_write(&ctx->ssl, tmpbuff, len);
+					if (ctx->rd_cb) {
+						ctx->rd_cb(ctx, len,(char *) tmpbuff);
+					}
 				}
-			} while (len > 0);
+			}
+		}
+	} else if (nread == 0) {
+		printf("read = 0\n");
+	} else {
+		if (buf && buf->base) {
+			delete[] buf->base;
+		}
+		if (ctx->sta == ssl_handshake_ok) {
+			ctx->sta = ssh_closing;
+			int ret = mbedtls_ssl_close_notify(&ctx->ssl);
+			if (ret == 0) {
+				uv_close((uv_handle_t *)stream, uv_close_cb_mbed);
+			}
 		}
 	}
 }
@@ -121,11 +155,14 @@ void connect_cb(uv_connect_t *req, int status)
 		goto exit;
 	}
 #endif
-
+	ssl->sta = ssl_handshake;
 	uv_read_start(req->handle, alloc_buffer, uv_read_cb_bio);
 	mbedtls_ssl_set_bio(&ssl->ssl, req->handle, mbedtls_ssl_send_bio, mbedtls_ssl_recv_bio, nullptr);
 
-	ssl->handshake = mbedtls_ssl_handshake(&ssl->ssl);
+	ret = mbedtls_ssl_handshake(&ssl->ssl);
+	if (ret == 0) {
+		ssl->sta = ssl_handshake_ok;
+	}
 
 	delete req;
 }
