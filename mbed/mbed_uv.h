@@ -44,7 +44,7 @@ struct uv_ssl_context {
 	uv_ssl_read_cb rd_cb = nullptr;
 	uv_ssl_event_cb event_cb = nullptr;
 	uv_stream_t *phandle;
-	void * data;
+	void * data = nullptr;
 };
 
 #endif
