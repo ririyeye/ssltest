@@ -35,11 +35,12 @@ enum ssl_stat {
 	ssh_closing,
 };
 
-
 struct uv_ssl_context;
-typedef void (*uv_ssl_read_cb)(uv_ssl_context *stream,
-			   ssize_t nread,
-			   const char * buff);
+typedef void (*uv_ssl_read_cb)(uv_ssl_context *ssl,
+			       ssize_t nread,
+			       const char *buff);
+
+void uv_ssl_close(uv_ssl_context *ssl);
 
 struct uv_ssl_context {
 	mbedtls_ssl_context ssl;
@@ -47,7 +48,7 @@ struct uv_ssl_context {
 	mbed_context *ctx;
 	std::list<rcv_buf> rcv_bio_list;
 	uv_ssl_read_cb rd_cb = nullptr;
+	uv_stream_t *phandle;
 };
 
 #endif
-

@@ -40,6 +40,15 @@ void uv_close_cb_mbed(uv_handle_t *handle)
 	delete stream;
 }
 
+void uv_ssl_close(uv_ssl_context *ssl)
+{
+	ssl->sta = ssh_closing;
+	int ret = mbedtls_ssl_close_notify(&ssl->ssl);
+	if (ret == 0) {
+		uv_close((uv_handle_t *)ssl->phandle, uv_close_cb_mbed);
+	}
+}
+
 void uv_read_cb_bio(uv_stream_t *stream,
 		    ssize_t nread,
 		    const uv_buf_t *buf)
@@ -70,8 +79,16 @@ void uv_read_cb_bio(uv_stream_t *stream,
 				len = mbedtls_ssl_read(&ctx->ssl, tmpbuff, 4096);
 				if (len > 0) {
 					if (ctx->rd_cb) {
-						ctx->rd_cb(ctx, len,(char *) tmpbuff);
+						ctx->rd_cb(ctx, len, (char *)tmpbuff);
 					}
+				} else if (len == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+					int ret = mbedtls_ssl_close_notify(&ctx->ssl);
+					if (ret == 0) {
+						uv_close((uv_handle_t *)ctx->phandle, uv_close_cb_mbed);
+					}
+					break;
+				} else {
+					break;
 				}
 			}
 		}
@@ -127,6 +144,23 @@ int mbedtls_ssl_recv_bio(void *ctx,
 	return 0;
 }
 
+// typedef void (*uv_ssl_read_cb)(uv_ssl_context *ssl,
+// 			       ssize_t nread,
+// 			       const char *buff);
+
+// void uv_ssl_close(uv_ssl_context *ssl);
+
+void ssl_read_cb(uv_ssl_context *ssl,
+		 ssize_t nread,
+		 const char *buff)
+{
+	printf("get buff = %ld,%s\n", nread, buff);
+
+	if (!strncmp("close", buff, 5)) {
+		uv_ssl_close(ssl);
+	}
+}
+
 void connect_cb(uv_connect_t *req, int status)
 {
 	if (status < 0) {
@@ -155,7 +189,9 @@ void connect_cb(uv_connect_t *req, int status)
 		goto exit;
 	}
 #endif
+	ssl->phandle = req->handle;
 	ssl->sta = ssl_handshake;
+	ssl->rd_cb = ssl_read_cb;
 	uv_read_start(req->handle, alloc_buffer, uv_read_cb_bio);
 	mbedtls_ssl_set_bio(&ssl->ssl, req->handle, mbedtls_ssl_send_bio, mbedtls_ssl_recv_bio, nullptr);
 
