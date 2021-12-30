@@ -74,33 +74,6 @@ unique_ptr<mbed_context> dtls_main(void)
 	mbedtls_ssl_conf_ca_chain(&pmc->conf, &pmc->cacert, NULL);
 	mbedtls_ssl_conf_rng(&pmc->conf, mbedtls_ctr_drbg_random, &pmc->ctr_drbg);
 	mbedtls_ssl_conf_dbg(&pmc->conf, my_debug, stdout);
-#if 0
-	/*
-     * 4. Handshake
-     */
 
-	while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
-		if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-			mbedtls_printf(" failed\n  ! mbedtls_ssl_handshake returned -0x%x\n\n", -ret);
-			goto exit;
-		}
-	}
-
-	/*
-     * 5. Verify the server certificate
-     */
-	//mbedtls_printf("  . Verifying peer X.509 certificate...");
-
-	/* In real life, we probably want to bail out when ret != 0 */
-	if (mbedtls_ssl_get_verify_result(&ssl) != 0) {
-		char vrfy_buf[512];
-
-		mbedtls_printf(" failed\n");
-
-		mbedtls_x509_crt_verify_info(vrfy_buf, sizeof(vrfy_buf), "  ! ", flags);
-
-		mbedtls_printf("%s\n", vrfy_buf);
-	} 
-#endif
 	return pmc;
 }

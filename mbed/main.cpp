@@ -28,6 +28,14 @@ void ssl_read_cb(uv_ssl_context *ssl,
 	}
 }
 
+void on_handshake(uv_ssl_context *pssl, int status)
+{
+	if (status == 0) {
+		printf("handshake ok \n");
+		pssl->rd_cb = ssl_read_cb;
+	}
+}
+
 void connect_cb(uv_connect_t *req, int status)
 {
 	if (status < 0) {
@@ -35,7 +43,7 @@ void connect_cb(uv_connect_t *req, int status)
 		delete req;
 		return;
 	}
-	uv_create_ssl(req->handle, (mbed_context *)req->data, ssl_read_cb);
+	uv_create_ssl(req->handle, (mbed_context *)req->data, on_handshake);
 	delete req;
 }
 
