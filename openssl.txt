@@ -5,3 +5,4 @@ openssl s_client -connect 127.0.0.1:20000 -dtls -curves secp256k1 -CAfile ca/ca.
 
 #test server command
 openssl s_server -accept 8888 -cert server/pri.ca -key server/pri_key.pem -pass pass:12138 -msg
+openssl s_client -connect 127.0.0.1:8888 -CAfile ca/ca.cer -msg

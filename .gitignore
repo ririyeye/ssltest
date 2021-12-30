@@ -7,3 +7,4 @@ dtls-libevent-server
 dtls-libuv-server
 dtls-mbedtls-server
 dtls-mbed-server
+dtls-mbed-client

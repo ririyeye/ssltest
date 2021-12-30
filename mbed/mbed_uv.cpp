@@ -65,13 +65,9 @@ void uv_ssl_handshake(uv_ssl_context *pctx)
 	if (ret == 0) {
 		pctx->sta = ssl_connected;
 
-		ret = mbedtls_ssl_get_verify_result(&pctx->ssl);
-		if (ret == 0 && pctx->handshake_cb) {
+		if (pctx->handshake_cb) {
 			pctx->handshake_cb(pctx, 0);
 		} else {
-			if (pctx->handshake_cb) {
-				pctx->handshake_cb(pctx, -1);
-			}
 			uv_ssl_close(pctx);
 		}
 	}

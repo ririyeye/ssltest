@@ -29,6 +29,7 @@ void ssl_read_cb(uv_ssl_context *ssl,
 void on_handshake(uv_ssl_context *pssl, int status)
 {
 	if (status == 0) {
+		int ret = mbedtls_ssl_get_verify_result(&pssl->ssl);
 		printf("handshake ok \n");
 		pssl->rd_cb = ssl_read_cb;
 	}
