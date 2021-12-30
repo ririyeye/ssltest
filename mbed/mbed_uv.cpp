@@ -1,23 +1,22 @@
 
 #include "mbed_uv.h"
 #include "string.h"
+#include <memory>
 
 struct write_req_t : public uv_write_t {
-	uv_buf_t buf;
-	~write_req_t()
+	write_req_t(const void *src, int len)
+		: dat(new char[len])
 	{
-		if (buf.base) {
-			delete[] buf.base;
-		}
+		memcpy(dat.get(), src, len);
+		buf = uv_buf_init(dat.get(), len);
 	}
+	uv_buf_t buf;
+	std::unique_ptr<char[]> dat;
 };
 
 void uv_write_cb0(uv_write_t *req, int status)
 {
-	write_req_t *wr;
-
-	wr = (write_req_t *)req;
-	delete wr;
+	delete (write_req_t *)req;
 }
 
 static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
@@ -41,14 +40,18 @@ void uv_read_cb_bio(uv_stream_t *stream,
 		tmp.startpos = 0;
 		ctx->rcv_bio_list.emplace_back(tmp);
 
-		if (ctx->handshake != MBEDTLS_SSL_HANDSHAKE_OVER) {
+		if (ctx->handshake != 0) {
 			ctx->handshake = mbedtls_ssl_handshake(&ctx->ssl);
 		} else {
 			unsigned char tmpbuff[128];
 			int len;
 			do {
+				memset(tmpbuff, 0, 128);
 				len = mbedtls_ssl_read(&ctx->ssl, tmpbuff, 128);
 				printf("get dat = %s\n", tmpbuff);
+				if (len > 0) {
+					mbedtls_ssl_write(&ctx->ssl, tmpbuff, len);
+				}
 			} while (len > 0);
 		}
 	}
@@ -60,11 +63,7 @@ int mbedtls_ssl_send_bio(void *ctx,
 {
 	uv_stream_t *pio = (uv_stream_t *)ctx;
 
-	write_req_t *wreq = new write_req_t();
-
-	char *buff = new char[len];
-	memcpy(buff, buf, len);
-	wreq->buf = uv_buf_init(buff, len);
+	write_req_t *wreq = new write_req_t(buf, len);
 
 	uv_write(wreq, pio, &wreq->buf, 1, uv_write_cb0);
 	return len;

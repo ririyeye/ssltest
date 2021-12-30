@@ -30,7 +30,7 @@ struct rcv_buf {
 
 struct uv_ssl_context {
 	mbedtls_ssl_context ssl;
-	int handshake;
+	int handshake = -1; ///0表示握手完成
 	mbed_context *ctx;
 	std::list<rcv_buf> rcv_bio_list;
 };
