@@ -12,10 +12,8 @@
 #include <string.h>
 #include <memory>
 #include "mbed_uv.h"
-
+#include "mbed_cfg.h"
 using namespace std;
-
-unique_ptr<mbed_context> dtls_main(void);
 
 void ssl_read_cb(uv_ssl_context *ssl,
 		 ssize_t nread,
@@ -66,7 +64,7 @@ int create_connect(uv_loop_t *loop, const char *ip, int port, mbed_context *ctx)
 
 int main(void)
 {
-	auto conf = dtls_main();
+	auto conf = create_mbed_config_client("ca/ca.cer");
 
 	uv_loop_t *loop = uv_default_loop();
 

@@ -118,7 +118,9 @@ void uv_read_cb_bio(uv_stream_t *stream,
 			}
 		}
 	} else if (nread == 0) {
+#if 0
 		printf("read = 0\n");
+#endif
 	} else {
 		if (buf && buf->base) {
 			delete[] buf->base;

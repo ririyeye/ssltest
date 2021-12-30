@@ -6,20 +6,7 @@
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include <list>
-struct mbed_context {
-	mbedtls_entropy_context entropy;
-	mbedtls_ctr_drbg_context ctr_drbg;
-	mbedtls_ssl_config conf;
-	mbedtls_x509_crt cacert;
-
-	~mbed_context()
-	{
-		mbedtls_x509_crt_free(&cacert);
-		mbedtls_ssl_config_free(&conf);
-		mbedtls_ctr_drbg_free(&ctr_drbg);
-		mbedtls_entropy_free(&entropy);
-	}
-};
+#include "mbed_cfg.h"
 
 struct rcv_buf {
 	char *buff;
