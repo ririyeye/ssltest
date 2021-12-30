@@ -144,40 +144,15 @@ int mbedtls_ssl_recv_bio(void *ctx,
 	return 0;
 }
 
-// typedef void (*uv_ssl_read_cb)(uv_ssl_context *ssl,
-// 			       ssize_t nread,
-// 			       const char *buff);
-
-// void uv_ssl_close(uv_ssl_context *ssl);
-
-void ssl_read_cb(uv_ssl_context *ssl,
-		 ssize_t nread,
-		 const char *buff)
+void uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_read_cb rd_cb)
 {
-	printf("get buff = %ld,%s\n", nread, buff);
-
-	if (!strncmp("close", buff, 5)) {
-		uv_ssl_close(ssl);
-	}
-}
-
-void connect_cb(uv_connect_t *req, int status)
-{
-	if (status < 0) {
-		delete req->handle;
-		delete req;
-		return;
-	}
-
 	uv_ssl_context *ssl = new uv_ssl_context();
-	ssl->ctx = (mbed_context *)req->data;
-
-	req->handle->data = ssl;
+	ssl->ctx = pctx;
+	phandle->data = ssl;
 
 	mbedtls_ssl_init(&ssl->ssl);
 
 	int ret;
-
 	if ((ret = mbedtls_ssl_setup(&ssl->ssl, &ssl->ctx->conf)) != 0) {
 		return;
 	}
@@ -189,33 +164,14 @@ void connect_cb(uv_connect_t *req, int status)
 		goto exit;
 	}
 #endif
-	ssl->phandle = req->handle;
+	ssl->phandle = phandle;
 	ssl->sta = ssl_handshake;
-	ssl->rd_cb = ssl_read_cb;
-	uv_read_start(req->handle, alloc_buffer, uv_read_cb_bio);
-	mbedtls_ssl_set_bio(&ssl->ssl, req->handle, mbedtls_ssl_send_bio, mbedtls_ssl_recv_bio, nullptr);
+	ssl->rd_cb = rd_cb;
+	uv_read_start(phandle, alloc_buffer, uv_read_cb_bio);
+	mbedtls_ssl_set_bio(&ssl->ssl, phandle, mbedtls_ssl_send_bio, mbedtls_ssl_recv_bio, nullptr);
 
 	ret = mbedtls_ssl_handshake(&ssl->ssl);
 	if (ret == 0) {
 		ssl->sta = ssl_handshake_ok;
 	}
-
-	delete req;
-}
-
-int create_connect(uv_loop_t *loop, const char *ip, int port, mbed_context *ctx)
-{
-	sockaddr_in server_addr;
-	uv_ip4_addr(ip, port, &server_addr);
-
-	uv_connect_t *connect = new uv_connect_t();
-
-	uv_tcp_t *ptcp = new uv_tcp_t();
-	uv_tcp_init(loop, ptcp);
-
-	connect->data = ctx;
-
-	uv_tcp_connect(connect, ptcp, (sockaddr *)&server_addr, connect_cb);
-
-	return 0;
 }

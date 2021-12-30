@@ -41,6 +41,7 @@ typedef void (*uv_ssl_read_cb)(uv_ssl_context *ssl,
 			       const char *buff);
 
 void uv_ssl_close(uv_ssl_context *ssl);
+void uv_create_ssl(uv_stream_t *phandle, mbed_context *pctx, uv_ssl_read_cb rd_cb);
 
 struct uv_ssl_context {
 	mbedtls_ssl_context ssl;

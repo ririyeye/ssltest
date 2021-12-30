@@ -16,7 +16,45 @@
 using namespace std;
 
 unique_ptr<mbed_context> dtls_main(void);
-int create_connect(uv_loop_t *loop, const char *ip, int port, mbed_context *ctx);
+
+void ssl_read_cb(uv_ssl_context *ssl,
+		 ssize_t nread,
+		 const char *buff)
+{
+	printf("get buff = %ld,%s\n", nread, buff);
+
+	if (!strncmp("close", buff, 5)) {
+		uv_ssl_close(ssl);
+	}
+}
+
+void connect_cb(uv_connect_t *req, int status)
+{
+	if (status < 0) {
+		delete req->handle;
+		delete req;
+		return;
+	}
+	uv_create_ssl(req->handle, (mbed_context *)req->data, ssl_read_cb);
+	delete req;
+}
+
+int create_connect(uv_loop_t *loop, const char *ip, int port, mbed_context *ctx)
+{
+	sockaddr_in server_addr;
+	uv_ip4_addr(ip, port, &server_addr);
+
+	uv_connect_t *connect = new uv_connect_t();
+
+	uv_tcp_t *ptcp = new uv_tcp_t();
+	uv_tcp_init(loop, ptcp);
+
+	connect->data = ctx;
+
+	uv_tcp_connect(connect, ptcp, (sockaddr *)&server_addr, connect_cb);
+
+	return 0;
+}
 
 int main(void)
 {
@@ -24,7 +62,7 @@ int main(void)
 
 	uv_loop_t *loop = uv_default_loop();
 
-	create_connect(loop, "127.0.0.1", 8888, conf.get());
+	create_connect(loop, "216.238.79.71", 8888, conf.get());
 
 	uv_run(loop, UV_RUN_DEFAULT);
 
