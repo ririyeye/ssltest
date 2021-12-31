@@ -5,11 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "mbed client",
+            "name": "client",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/dtls-mbed-client",
-            "args": [],
+            "program": "${workspaceFolder}/test/mbed-asio/mbed-client",
+            "args": [
+                "127.0.0.1",
+                "8888"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -25,10 +28,10 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "mbed server",
+            "name": "server",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/test/mbed-asio/mbed-client",
+            "program": "${workspaceFolder}/test/mbed-asio/mbed-server",
             "args": [
 
             ],

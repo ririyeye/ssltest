@@ -51,6 +51,17 @@
 		"streambuf": "cpp",
 		"thread": "cpp",
 		"cinttypes": "cpp",
-		"typeinfo": "cpp"
+		"typeinfo": "cpp",
+		"csignal": "cpp",
+		"cstring": "cpp",
+		"bitset": "cpp",
+		"codecvt": "cpp",
+		"complex": "cpp",
+		"set": "cpp",
+		"future": "cpp",
+		"iomanip": "cpp",
+		"iostream": "cpp",
+		"typeindex": "cpp",
+		"variant": "cpp"
 	}
 }
