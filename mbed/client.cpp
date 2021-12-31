@@ -14,7 +14,7 @@
 #include "mbed_uv.h"
 #include "mbed_cfg.h"
 using namespace std;
-
+void default_connect();
 void ssl_read_cb(uv_ssl_context *ssl,
 		 ssize_t nread,
 		 const char *buff)
@@ -30,12 +30,14 @@ void close_cb(uv_handle_t *handle)
 {
 	uv_tcp_t *pclient = (uv_tcp_t *)handle;
 	delete handle;
+	default_connect();
 }
 
 void on_event(uv_ssl_context *pssl, int status)
 {
 	if (status == ssl_connected) {
 		int ret = mbedtls_ssl_get_verify_result(&pssl->ssl);
+		uv_ssl_close(pssl);
 		printf("handshake ok \n");
 		pssl->rd_cb = ssl_read_cb;
 	} else if (status == ssl_closing) {
@@ -48,6 +50,7 @@ void connect_cb(uv_connect_t *req, int status)
 	if (status < 0) {
 		delete req->handle;
 		delete req;
+		default_connect();
 		return;
 	}
 	uv_create_ssl(req->handle, (mbed_context *)req->data, on_event);
@@ -71,15 +74,25 @@ int create_connect(uv_loop_t *loop, const char *ip, int port, mbed_context *ctx)
 	return 0;
 }
 
+unique_ptr<mbed_context> conf;
+uv_loop_t *loop = uv_default_loop();
+
+void default_connect()
+{
+	create_connect(loop, "216.238.79.71", 8888, conf.get());
+}
+
 int main(void)
 {
 	signal(SIGPIPE, SIG_IGN);
 
-	auto conf = create_mbed_config_client("ca/ca.cer");
+	conf = create_mbed_config_client("ca/ca.cer");
 
-	uv_loop_t *loop = uv_default_loop();
+	loop = uv_default_loop();
 
-	create_connect(loop, "216.238.79.71", 8888, conf.get());
+	for(int i = 0 ;i < 500;i++) {
+		default_connect();
+	}
 
 	uv_run(loop, UV_RUN_DEFAULT);
 
