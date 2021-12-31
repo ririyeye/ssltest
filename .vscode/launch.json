@@ -28,8 +28,10 @@
             "name": "mbed server",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/dtls-mbed-server",
-            "args": [],
+            "program": "${workspaceFolder}/test/mbed-asio/mbed-client",
+            "args": [
+
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

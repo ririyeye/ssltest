@@ -12,11 +12,10 @@ target_link_libraries(mbed-server
 	pthread)
 
 
-add_executable(mbed-client mbed_cfg.cpp client.cpp mbed_asio.cpp)
+add_executable(mbed-client client.cpp)
 
 target_link_libraries(mbed-client
 	PUBLIC
-	mbedtls
-	mbedx509
-	mbedcrypto
+	ssl
+	crypto
 	pthread)
