@@ -61,4 +61,4 @@ target_link_libraries(dtls-libuv-server
 	uv
 	pthread)
 
-add_subdirectory(mbed)
+add_subdirectory(mbed-libuv)
