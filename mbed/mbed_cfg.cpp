@@ -14,7 +14,7 @@
 #include "mbed_uv.h"
 
 using namespace std;
-#define DEBUG_LEVEL 2
+#define DEBUG_LEVEL 0
 
 static void my_debug(void *ctx, int level,
 		     const char *file, int line,

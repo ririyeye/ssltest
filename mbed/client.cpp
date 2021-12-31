@@ -73,6 +73,8 @@ int create_connect(uv_loop_t *loop, const char *ip, int port, mbed_context *ctx)
 
 int main(void)
 {
+	signal(SIGPIPE, SIG_IGN);
+
 	auto conf = create_mbed_config_client("ca/ca.cer");
 
 	uv_loop_t *loop = uv_default_loop();

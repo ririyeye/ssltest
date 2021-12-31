@@ -75,7 +75,7 @@ void error_close_cb(uv_handle_t *handle)
 void on_event(uv_ssl_context *pssl, int status)
 {
 	if (status == ssl_connected) {
-		printf("handshake ok \n");
+		//printf("handshake ok \n");
 		pssl->rd_cb = ssl_read_cb;
 
 		connect_data *pdat = new connect_data();
@@ -104,6 +104,7 @@ void on_connection_cb(uv_stream_t *server, int status)
 	uv_tcp_t *pclient = new uv_tcp_t();
 	uv_tcp_init(server->loop, pclient);
 	if (uv_accept(server, (uv_stream_t *)pclient) == 0) {
+		
 		uv_create_ssl((uv_stream_t *)pclient, (mbed_context *)server->data, on_event);
 	} else {
 		uv_close((uv_handle_t *)pclient, error_close_cb);
@@ -128,6 +129,8 @@ int create_bind(uv_loop_t *loop, int port, mbed_context *ctx)
 
 int main(void)
 {
+	signal(SIGPIPE, SIG_IGN);
+
 	auto conf = create_mbed_config_server("server/pri.ca", "server/pri_key.pem", "12138");
 
 	uv_loop_t *loop = uv_default_loop();

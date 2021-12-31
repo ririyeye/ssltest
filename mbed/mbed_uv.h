@@ -20,6 +20,7 @@ enum ssl_stat {
 	ssl_handshake,
 	ssl_connected,
 	ssl_closing,
+	ssl_base_broken_pip,
 };
 
 struct uv_ssl_context;

@@ -27,16 +27,21 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 	buf->len = bufflen;
 }
 
-void uv_ssl_close(uv_ssl_context *ssl)
+void uv_ssl_direct_close(uv_ssl_context *pssl, int sta)
 {
-	ssl->sta = ssl_closing;
-	int ret = mbedtls_ssl_close_notify(&ssl->ssl);
+	if (pssl->event_cb) {
+		pssl->event_cb(pssl, sta);
+		mbedtls_ssl_free(&pssl->ssl);
+		delete pssl;
+	}
+}
+
+void uv_ssl_close(uv_ssl_context *pssl)
+{
+	pssl->sta = ssl_closing;
+	int ret = mbedtls_ssl_close_notify(&pssl->ssl);
 	if (ret == 0) {
-		if (ssl->event_cb) {
-			ssl->event_cb(ssl, ssl_closing);
-			mbedtls_ssl_free(&ssl->ssl);
-			delete ssl;
-		}
+		uv_ssl_direct_close(pssl, ssl_closing);
 	}
 }
 
@@ -103,12 +108,10 @@ void uv_read_cb_bio(uv_stream_t *stream,
 		printf("read = 0\n");
 #endif
 	} else {
-		if (buf && buf->base) {
+		if (buf && buf->base && buf->len) {
 			delete[] buf->base;
 		}
-		if (ctx->sta == ssl_connected) {
-			uv_ssl_close(ctx);
-		}
+		uv_ssl_direct_close(ctx, ssl_base_broken_pip);
 	}
 }
 
