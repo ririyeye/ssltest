@@ -64,3 +64,5 @@ target_link_libraries(dtls-libuv-server
 add_subdirectory(mbed-libuv)
 
 add_subdirectory(mbed-asio)
+
+add_subdirectory(asio-dtls)

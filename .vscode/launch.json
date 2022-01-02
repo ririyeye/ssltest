@@ -31,7 +31,7 @@
             "name": "server",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/test/mbed-asio/mbed-server",
+            "program": "${workspaceFolder}/test/asio-dtls/example_boost_server",
             "args": [
 
             ],
