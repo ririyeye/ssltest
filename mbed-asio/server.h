@@ -24,6 +24,9 @@ class session
 		: m_strand(ctx), socket_(std::move(socket)), mbed_ctx(pctx)
 	{
 	}
+	~session()
+	{
+	}
 	void start()
 	{
 		mbedtls_ssl_init(&ctx);
@@ -39,6 +42,18 @@ class session
 		handshake();
 	}
 
+	void write_dat(const char *buff, int len)
+	{
+		if (sta == ssl_connected) {
+			auto snd = std::make_shared<std::vector<char> >(len);
+			std::copy(buff, buff + len, snd->begin());
+			auto self(shared_from_this());
+			m_strand.post([this, snd, self]() {
+				mbedtls_ssl_write(&ctx, (unsigned char *)&snd->at(0), snd->size());
+			});
+		}
+	}
+
     private:
 	static int mbedtls_ssl_send_bio(void *ctx,
 					const unsigned char *buf,
@@ -51,16 +66,13 @@ class session
 
 	int mbedtls_ssl_send_bio(const unsigned char *buf, size_t len)
 	{
-		auto self(shared_from_this());
-		auto snd = std::make_shared<std::vector<char> >(len);
-		std::copy(buf, buf + len, snd->begin());
-
-		socket_.async_write_some(boost::asio::buffer(*snd),
-					 boost::asio::bind_executor(m_strand,
-								    [this, self, snd](boost::system::error_code ec, std::size_t length) {
-								    }));
-
-		return len;
+		boost::system::error_code ec;
+		int ret = socket_.write_some(boost::asio::buffer(buf, len), ec);
+		if (!ec) {
+			return ret;
+		}
+		printf("write error = %s\n", ec.message().c_str());
+		return ec.value();
 	}
 
 	static int mbedtls_ssl_recv_bio(void *ctx,
@@ -107,45 +119,48 @@ class session
 		}
 	}
 
+	void on_read(boost::system::error_code ec, std::size_t length, std::shared_ptr<session> self)
+	{
+		if (!ec) {
+			rcv_buffs bufs;
+			memcpy(bufs.buff, data_, length);
+			bufs.bufflen = 2048;
+			bufs.datelen = length;
+			bufs.startpos = 0;
+
+			rcv_bio_list.emplace_back(bufs);
+
+			if (sta == ssl_handshake) {
+				handshake();
+			} else if (sta == ssl_closing) {
+				return;
+			} else {
+				unsigned char tmpbuff[4096];
+				int len;
+				while (true) {
+					len = mbedtls_ssl_read(&ctx, tmpbuff, 4096);
+					if (len > 0) {
+						write_dat((char *)tmpbuff, len);
+						//printf("get dat = %s\n", tmpbuff);
+					} else if (len == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+						return;
+						break;
+					} else {
+						break;
+					}
+				}
+			}
+			start_read();
+		}
+	}
+
 	void start_read()
 	{
 		auto self(shared_from_this());
 
-		auto rdevent = [this, self](boost::system::error_code ec, std::size_t length) {
-			if (!ec) {
-				rcv_buffs bufs;
-				memcpy(bufs.buff, data_, length);
-				bufs.bufflen = 2048;
-				bufs.datelen = length;
-				bufs.startpos = 0;
+		auto _onrd = boost::bind(&session::on_read, this, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred, self);
 
-				rcv_bio_list.emplace_back(bufs);
-
-				if (sta == ssl_handshake) {
-					handshake();
-				} else if (sta == ssl_closing) {
-					return;
-				} else {
-					unsigned char tmpbuff[4096];
-					int len;
-					while (true) {
-						len = mbedtls_ssl_read(&ctx, tmpbuff, 4096);
-						if (len > 0) {
-							printf("get dat = %s\n", tmpbuff);
-						} else if (len == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
-							return;
-							break;
-						} else {
-							break;
-						}
-					}
-				}
-
-				start_read();
-			}
-		};
-
-		socket_.async_read_some(boost::asio::buffer(data_, max_length), boost::asio::bind_executor(m_strand, rdevent));
+		socket_.async_read_some(boost::asio::buffer(data_, max_length), boost::asio::bind_executor(m_strand, _onrd));
 	}
 
 	enum mbed_stat {
