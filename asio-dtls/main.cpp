@@ -79,12 +79,58 @@ class DTLS_Context
 
 	DTLS_Context(boost::asio::io_context &serv, dtls_sock_ptr this_ptr)
 		: m_strand(serv), m_socket(this_ptr)
+		, m_timer(serv)
+		, m_close(serv)
 	{
 	}
 
 	void start()
 	{
 		start_read();
+		start_timer();
+	}
+
+	~DTLS_Context()
+	{
+		printf("destruct DTLS_Context!!!\n");
+	}
+
+	void shutdown()
+	{
+		if (shutdown_flg == 0) {
+			shutdown_flg = 1;
+			auto self(shared_from_this());
+			auto shutcb = [this, self](boost::system::error_code ec) {
+				m_close.cancel();
+				printf("shutdonw callback!!!\n");
+			};
+
+			m_socket->async_shutdown(boost::asio::bind_executor(m_strand, shutcb));
+
+			//设定强制关闭
+			m_timer.expires_from_now(boost::posix_time::seconds(5));
+			auto timercb = [this, self](boost::system::error_code ec) {
+				if (!ec) {
+					printf("force shutdown\n");
+					m_socket->next_layer().close();
+				}
+			};
+			m_close.async_wait(boost::asio::bind_executor(m_strand, timercb));
+		}
+	}
+
+	void start_timer()
+	{
+		m_timer.expires_from_now(boost::posix_time::seconds(5));
+		auto self(shared_from_this());
+		auto timercb = [this, self](boost::system::error_code ec) {
+			if (!ec) {
+				printf("time out!!!\n");
+				shutdown();
+			}
+		};
+
+		m_timer.async_wait(boost::asio::bind_executor(m_strand, timercb));
 	}
 
 	void start_read()
@@ -93,7 +139,9 @@ class DTLS_Context
 
 		auto _onrd = [this, self](boost::system::error_code ec, std::size_t length) {
 			if (!ec) {
+				start_timer();
 				auto sndbuf = std::make_shared<std::vector<char> >(length);
+				std::copy(recv_buff, recv_buff + length, sndbuf->begin());
 
 				auto nullact = [this, sndbuf](boost::system::error_code ec, std::size_t length) {
 				};
@@ -110,6 +158,9 @@ class DTLS_Context
 	char recv_buff[1500];
 	dtls_sock_ptr m_socket;
 	boost::asio::io_context::strand m_strand;
+	boost::asio::deadline_timer m_timer;
+	boost::asio::deadline_timer m_close;
+	int shutdown_flg = 0;
 };
 
 template <typename DatagramSocketType>
