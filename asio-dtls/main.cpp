@@ -5,24 +5,68 @@
 #include <boost/asio.hpp>
 #include <functional>
 #include <iostream>
+#include <boost/beast/core/detail/base64.hpp>
+
+
+#define COOKIE_SECRET_LENGTH 32
+int cookie_initialized = 0;
+unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
+
+std::string GenBase64_from_ep(const boost::asio::ip::udp::endpoint &ep)
+{
+	if (!cookie_initialized) {
+		if (!RAND_bytes(cookie_secret, COOKIE_SECRET_LENGTH)) {
+			printf("error setting random cookie secret\n");
+			return "";
+		}
+		cookie_initialized = 1;
+	}
+	char buffer[256];
+	char result[256];
+	unsigned int resultlength;
+
+	uint16_t port = ep.port();
+
+	int length = 0;	
+	memcpy(buffer + length, &port, 2);
+	length += 2;
+
+	if(ep.data()->sa_family == AF_INET) {
+		auto ipBin = ep.address().to_v4().to_bytes();
+		memcpy(buffer + length, &ipBin[0], 4);
+		length += 4;
+	} else if(ep.data()->sa_family == AF_INET6) {
+		auto ipBin = ep.address().to_v6().to_bytes();
+		memcpy(buffer + length, &ipBin[0], 16);
+		length += 4;
+	} else {
+		printf("ep protocol error\n");
+		return "";
+	}
+
+	::HMAC(EVP_sha1(), (const void *)cookie_secret, COOKIE_SECRET_LENGTH,
+	       (const unsigned char *)buffer, length, (unsigned char *)result, &resultlength);
+
+	int maxlen = boost::beast::detail::base64::encode(buffer, result, resultlength);
+
+	buffer[maxlen] = 0;
+	return std::string(buffer, maxlen);
+}
 
 bool generateCookie(std::string &cookie, const boost::asio::ip::udp::endpoint &ep)
 {
-	cookie = "Wasser";
+	cookie = GenBase64_from_ep(ep);
 
-	std::cout << "Cookie generated for endpoint: " << ep
-		  << " is " << cookie << std::endl;
+	if (cookie == "") {
+		return false;
+	}
 
 	return true;
 }
 
 bool verifyCookie(const std::string &cookie, const boost::asio::ip::udp::endpoint &ep)
-{
-	std::cout << "Cookie provided for endpoint: " << ep
-		  << " is " << cookie
-		  << " should be "
-		  << "Wasser" << std::endl;
-	return (cookie == "Wasser");
+{	
+	return (cookie == GenBase64_from_ep(ep));
 }
 
 template <typename DatagramSocketType>
@@ -70,9 +114,8 @@ class DTLS_Server {
 					socket->async_handshake(dtls_sock::server,
 								boost::asio::buffer(buffer->data(), size),
 								callback);
-
-					listen();
 				}
+				listen();
 			},
 			ec);
 		if (ec) {
