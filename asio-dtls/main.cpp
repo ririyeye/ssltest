@@ -7,7 +7,6 @@
 #include <iostream>
 #include <boost/beast/core/detail/base64.hpp>
 
-
 #define COOKIE_SECRET_LENGTH 32
 int cookie_initialized = 0;
 unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
@@ -27,15 +26,15 @@ std::string GenBase64_from_ep(const boost::asio::ip::udp::endpoint &ep)
 
 	uint16_t port = ep.port();
 
-	int length = 0;	
+	int length = 0;
 	memcpy(buffer + length, &port, 2);
 	length += 2;
 
-	if(ep.data()->sa_family == AF_INET) {
+	if (ep.data()->sa_family == AF_INET) {
 		auto ipBin = ep.address().to_v4().to_bytes();
 		memcpy(buffer + length, &ipBin[0], 4);
 		length += 4;
-	} else if(ep.data()->sa_family == AF_INET6) {
+	} else if (ep.data()->sa_family == AF_INET6) {
 		auto ipBin = ep.address().to_v6().to_bytes();
 		memcpy(buffer + length, &ipBin[0], 16);
 		length += 4;
@@ -65,7 +64,7 @@ bool generateCookie(std::string &cookie, const boost::asio::ip::udp::endpoint &e
 }
 
 bool verifyCookie(const std::string &cookie, const boost::asio::ip::udp::endpoint &ep)
-{	
+{
 	return (cookie == GenBase64_from_ep(ep));
 }
 
@@ -180,8 +179,11 @@ int main()
 
 		ctx.set_password_callback(pass);
 
+		ctx.load_verify_file("ca/ca.cer");
+		ctx.set_verify_mode(SSL_VERIFY_FAIL_IF_NO_PEER_CERT | SSL_VERIFY_PEER);
+
 		ctx.use_certificate_file("server/pri.ca", boost::asio::ssl::context_base::pem);
-		ctx.use_private_key_file("server/pri_key.pem", boost::asio::ssl::context_base::pem);
+		ctx.use_private_key_file("server/pri_key.pem", boost::asio::ssl::context_base::pem);		
 
 
 
