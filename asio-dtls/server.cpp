@@ -6,7 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <boost/beast/core/detail/base64.hpp>
-#include "DTLS_Context.h"
+#include "kcp_dtls.h"
 
 #define COOKIE_SECRET_LENGTH 32
 int cookie_initialized = 0;
@@ -129,7 +129,7 @@ class DTLS_Server {
 		if (ec) {
 			std::cout << "Handshake Error: " << ec.message() << std::endl;
 		} else {
-			std::make_shared<DTLS_Context>(io_ctx, socket)->start();
+			std::make_shared<kcp_Context>(io_ctx, socket)->start();
 		}
 	}
 
