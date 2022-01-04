@@ -2,16 +2,12 @@
 
 add_compile_options("-g3")
 
-
-
-set(examples_boost_server_sources main.cpp kcp/ikcp.c)
-
-
-
-add_executable(example_boost_server ${examples_boost_server_sources})
-
 add_subdirectory(asio_dtls_lib)
 
-target_link_libraries(example_boost_server asio_dtls)
+add_executable(server server.cpp kcp/ikcp.c)
+target_link_libraries(server asio_dtls)
 
+
+add_executable(client client.cpp kcp/ikcp.c)
+target_link_libraries(client asio_dtls)
 

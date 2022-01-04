@@ -7,6 +7,7 @@
 #include <iostream>
 #include <boost/beast/core/detail/base64.hpp>
 #include <boost/asio/async_result.hpp>
+#include <alloca.h>
 
 class DTLS_Context
 	: public std::enable_shared_from_this<DTLS_Context> {
@@ -16,9 +17,10 @@ class DTLS_Context
 
 	typedef std::vector<char> buffer_type;
 	typedef boost::asio::detail::shared_ptr<buffer_type> buffer_ptr;
+	std::function<void()> exit_cb;
 
 	DTLS_Context(boost::asio::io_context &serv, dtls_sock_ptr this_ptr)
-		: m_strand(serv), m_socket(this_ptr), m_timer(serv), m_close(serv)
+		: m_strand(serv), m_socket(this_ptr), m_recv_timer(serv), m_close_timer(serv)
 	{
 	}
 
@@ -33,7 +35,7 @@ class DTLS_Context
 		printf("destruct DTLS_Context!!!\n");
 	}
 
-	void write_data(char *dat, int length)
+	void write_data(const char *dat, int length)
 	{
 		auto sndbuf = std::make_shared<std::vector<char> >(length);
 		std::copy(dat, dat + length, sndbuf->begin());
@@ -46,35 +48,49 @@ class DTLS_Context
 
 	virtual void read_data_cb(char *buff, int length)
 	{
+		char *printbuff = (char *)::alloca(length * 4);
+
+		int prilen = 0;
+
+		for (int i = 0; i < length; i++) {
+			prilen += sprintf(printbuff + prilen, "%02X ", buff[i]);
+		}
+		printf("get len = %d,%s\n", length, printbuff);
 	}
 
 	void shutdown()
 	{
 		if (shutdown_flg == 0) {
+			if (exit_cb) {
+				exit_cb();
+			}
+
 			shutdown_flg = 1;
 			auto self(shared_from_this());
 			auto shutcb = [this, self](boost::system::error_code ec) {
-				m_close.cancel();
+				m_close_timer.cancel();
 				printf("shutdonw callback!!!\n");
 			};
 
 			m_socket->async_shutdown(boost::asio::bind_executor(m_strand, shutcb));
 
 			//设定强制关闭
-			m_timer.expires_from_now(boost::posix_time::seconds(5));
+			m_close_timer.expires_from_now(boost::posix_time::seconds(5));
 			auto timercb = [this, self](boost::system::error_code ec) {
 				if (!ec) {
 					printf("force shutdown\n");
 					m_socket->next_layer().close();
 				}
 			};
-			m_close.async_wait(boost::asio::bind_executor(m_strand, timercb));
+			m_close_timer.async_wait(boost::asio::bind_executor(m_strand, timercb));
+			
+			m_recv_timer.cancel();
 		}
 	}
 
 	void start_timer()
 	{
-		m_timer.expires_from_now(boost::posix_time::seconds(5));
+		m_recv_timer.expires_from_now(boost::posix_time::seconds(5));
 		auto self(shared_from_this());
 		auto timercb = [this, self](boost::system::error_code ec) {
 			if (!ec) {
@@ -83,7 +99,7 @@ class DTLS_Context
 			}
 		};
 
-		m_timer.async_wait(boost::asio::bind_executor(m_strand, timercb));
+		m_recv_timer.async_wait(boost::asio::bind_executor(m_strand, timercb));
 	}
 
 	void start_read()
@@ -105,8 +121,8 @@ class DTLS_Context
 	char recv_buff[1500];
 	dtls_sock_ptr m_socket;
 	boost::asio::io_context::strand m_strand;
-	boost::asio::deadline_timer m_timer;
-	boost::asio::deadline_timer m_close;
+	boost::asio::deadline_timer m_recv_timer;
+	boost::asio::deadline_timer m_close_timer;
 	int shutdown_flg = 0;
 };
 

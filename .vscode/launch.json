@@ -8,10 +8,8 @@
             "name": "client",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/test/mbed-asio/mbed-client",
+            "program": "${workspaceFolder}/test/asio-dtls/client",
             "args": [
-                "127.0.0.1",
-                "8888"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -31,7 +29,7 @@
             "name": "server",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/test/asio-dtls/example_boost_server",
+            "program": "${workspaceFolder}/test/asio-dtls/server",
             "args": [
 
             ],
