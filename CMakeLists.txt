@@ -7,6 +7,7 @@ option(CMAKE_VERBOSE_MAKEFILE "make verbose=1" OFF)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
 
 add_compile_options("-g3")
+add_compile_options("-DBOOST_BIND_GLOBAL_PLACEHOLDERS")
 
 add_executable(ssl-server server.cpp)
 

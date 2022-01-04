@@ -93,7 +93,7 @@ class DTLS_Server {
 
 	void listen()
 	{
-		dtls_sock_ptr socket(new dtls_sock(m_acceptor.get_executor(), ctx_));
+		dtls_sock_ptr socket(new dtls_sock(io_ctx, ctx_));
 
 		buffer_ptr buffer(new buffer_type(1500));
 
