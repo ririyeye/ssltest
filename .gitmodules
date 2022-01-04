@@ -1,3 +1,6 @@
 [submodule "asio-dtls/asio_dtls_lib"]
 	path = asio-dtls/asio_dtls_lib
 	url = https://github.com/ririyeye/asio_dtls.git
+[submodule "asio-dtls/kcp"]
+	path = asio-dtls/kcp
+	url = https://github.com/ririyeye/kcp.git

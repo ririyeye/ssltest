@@ -4,7 +4,7 @@ add_compile_options("-g3")
 
 
 
-set(examples_boost_server_sources main.cpp)
+set(examples_boost_server_sources main.cpp kcp/ikcp.c)
 
 
 
