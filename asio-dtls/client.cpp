@@ -75,7 +75,7 @@ int main()
 	try {
 		boost::asio::io_context context;
 
-		auto serverAddress = boost::asio::ip::address::from_string("127.0.0.1");
+		auto serverAddress = boost::asio::ip::address::from_string("216.238.79.71");
 		boost::asio::ip::udp::endpoint serverEndpoint(serverAddress, 8888);
 
 		boost::asio::ssl::dtls::context ctx(boost::asio::ssl::dtls::context::dtls_client);
