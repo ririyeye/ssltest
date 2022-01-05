@@ -4,7 +4,8 @@
 mkdir test
 cd test
 cmake ../
-make -j8
+num=$(cat /proc/cpuinfo  | grep process | wc -l)
+make -j${num}
 cp ssl-client ../
 cp ssl-server ../
 cp dtls-server ../
