@@ -73,9 +73,6 @@ bool verifyCookie(const std::string &cookie, const boost::asio::ip::udp::endpoin
 template <typename DatagramSocketType>
 class DTLS_Server {
     public:
-	typedef boost::asio::ssl::dtls::socket<DatagramSocketType> dtls_sock;
-	typedef std::shared_ptr<dtls_sock> dtls_sock_ptr;
-
 	typedef std::vector<char> buffer_type;
 	typedef boost::asio::detail::shared_ptr<buffer_type> buffer_ptr;
 
@@ -94,27 +91,27 @@ class DTLS_Server {
 
 	void listen()
 	{
-		dtls_sock_ptr socket(new dtls_sock(io_ctx, ctx_));
+		auto sock = std::make_shared<boost::asio::ssl::dtls::socket<boost::asio::ip::udp::socket> >(io_ctx, ctx_);
 
 		buffer_ptr buffer(new buffer_type(1500));
 
 		boost::asio::error_code ec;
 
 		m_acceptor.async_accept(
-			*socket,
+			*sock,
 			boost::asio::buffer(buffer->data(), buffer->size()),
-			[this, socket, buffer](const boost::asio::error_code &ec, size_t size) {
+			[this, sock, buffer](const boost::asio::error_code &ec, size_t size) {
 				if (ec) {
 					std::cout << "Error in Accept: " << ec.message() << std::endl;
 				} else {
 					auto callback =
-						[this, socket, buffer](const boost::system::error_code &ec, size_t) {
-							handshake_completed(socket, ec);
+						[this, sock, buffer](const boost::system::error_code &ec, size_t) {
+							handshake_completed(sock, ec);
 						};
 
-					socket->async_handshake(dtls_sock::server,
-								boost::asio::buffer(buffer->data(), size),
-								callback);
+					sock->async_handshake(boost::asio::ssl::stream_base::server,
+							      boost::asio::buffer(buffer->data(), size),
+							      callback);
 				}
 				listen();
 			},
@@ -125,12 +122,14 @@ class DTLS_Server {
 	}
 
     private:
-	void handshake_completed(dtls_sock_ptr socket, const boost::asio::error_code &ec)
+	void handshake_completed(std::shared_ptr<boost::asio::ssl::dtls::socket<boost::asio::ip::udp::socket> > sock, const boost::asio::error_code &ec)
 	{
 		if (ec) {
 			std::cout << "Handshake Error: " << ec.message() << std::endl;
 		} else {
-			std::make_shared<DTLS_Context>(io_ctx, socket)->start();
+			std::make_shared<DTLS_Context>(io_ctx, sock)->start();
+			auto ep = sock->next_layer().remote_endpoint();
+			std::cout << "Handshake ok = " << ep.address().to_string() << "port = " << ep.port() << std::endl;
 		}
 	}
 
