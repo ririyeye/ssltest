@@ -7,7 +7,7 @@
 #include <iostream>
 #include <boost/beast/core/detail/base64.hpp>
 #include "kcp_dtls.h"
-
+#include "DTLS_Context.h"
 class Client {
     public:
 	Client(boost::asio::io_context &context,
@@ -39,7 +39,7 @@ class Client {
 
 		auto shakecb = [this, sock](boost::system::error_code ec) {
 			if (!ec) {
-				kcp = std::make_shared<kcp_Context>(io_ctx, sock);
+				kcp = std::make_shared<DTLS_Context>(io_ctx, sock);
 				kcp->exit_cb = std::bind(&Client::kcp_exit_cb, this);
 				kcp_start();
 			} else {
@@ -66,7 +66,7 @@ class Client {
 	boost::asio::ssl::dtls::context &ctx_;
 	boost::asio::io_context &io_ctx;
 	boost::asio::ip::udp::endpoint &m_ep;
-	std::shared_ptr<kcp_Context> kcp;
+	std::shared_ptr<DTLS_Context> kcp;
 	boost::asio::deadline_timer m_shake_timer;
 };
 
