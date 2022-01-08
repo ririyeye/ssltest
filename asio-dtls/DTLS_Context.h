@@ -8,6 +8,9 @@
 #include <boost/beast/core/detail/base64.hpp>
 #include <boost/asio/async_result.hpp>
 #include <alloca.h>
+#include <boost/asio/spawn.hpp>
+#include <boost/format.hpp>
+#include <boost/log/trivial.hpp>
 
 class DTLS_Context
 	: public std::enable_shared_from_this<DTLS_Context> {
@@ -20,7 +23,8 @@ class DTLS_Context
 	std::function<void()> exit_cb;
 
 	DTLS_Context(boost::asio::io_context &serv, dtls_sock_ptr this_ptr)
-		: m_strand(serv), m_socket(this_ptr), m_recv_timer(serv), m_close_timer(serv)
+		: m_strand(serv.get_executor()), m_socket(this_ptr), m_recv_timer(serv), m_close_timer(serv)
+		, m_keep_timer(serv)
 	{
 	}
 
@@ -28,11 +32,29 @@ class DTLS_Context
 	{
 		start_read();
 		start_timer();
+		start_keep_alive();
+	}
+
+	const std::array<char, 4> keepstr = { 1, 2, 3, 4 };
+
+	void start_keep_alive()
+	{
+		auto self(shared_from_this());
+
+		boost::asio::spawn(m_strand, [this, self](boost::asio::yield_context yie) {
+			boost::system::error_code ec;
+			do {
+				BOOST_LOG_TRIVIAL(info) << boost::format("send keep-a-live");
+				write_data(keepstr.data(), keepstr.size());
+				m_keep_timer.expires_from_now(boost::posix_time::seconds(1));
+				m_keep_timer.async_wait(yie[ec]);
+			} while (!ec);
+		});
 	}
 
 	virtual ~DTLS_Context()
 	{
-		printf("destruct DTLS_Context!!!\n");
+		BOOST_LOG_TRIVIAL(info) << boost::format("exit dtls");
 	}
 
 	void write_data(const char *dat, int length)
@@ -48,6 +70,22 @@ class DTLS_Context
 
 	virtual void read_data_cb(char *buff, int length)
 	{
+		if (length == keepstr.size()) {
+			auto chk = [&]() {
+				for (int i = 0; i < keepstr.size(); i++) {
+					if (buff[i] != keepstr[i]) {
+						return false;
+					}
+				}
+				return true;
+			};
+
+			if(chk() == true) {
+				BOOST_LOG_TRIVIAL(info) << boost::format("get keep-a-live");
+				return;
+			}
+		}
+
 		char *printbuff = (char *)::alloca(length * 4);
 
 		int prilen = 0;
@@ -64,6 +102,8 @@ class DTLS_Context
 			if (exit_cb) {
 				exit_cb();
 			}
+
+			m_keep_timer.cancel();
 
 			shutdown_flg = 1;
 			auto self(shared_from_this());
@@ -83,7 +123,7 @@ class DTLS_Context
 				}
 			};
 			m_close_timer.async_wait(boost::asio::bind_executor(m_strand, timercb));
-			
+
 			m_recv_timer.cancel();
 		}
 	}
@@ -120,9 +160,10 @@ class DTLS_Context
     private:
 	char recv_buff[1500];
 	dtls_sock_ptr m_socket;
-	boost::asio::io_context::strand m_strand;
+	boost::asio::strand<boost::asio::io_context::executor_type> m_strand;
 	boost::asio::deadline_timer m_recv_timer;
 	boost::asio::deadline_timer m_close_timer;
+	boost::asio::deadline_timer m_keep_timer;
 	int shutdown_flg = 0;
 };
 
