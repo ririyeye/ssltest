@@ -13,8 +13,7 @@ class Client {
 	Client(boost::asio::io_context &context,
 	       boost::asio::ssl::dtls::context &ctx,
 	       boost::asio::ip::udp::endpoint &ep)
-		: io_ctx(context), ctx_(ctx), m_ep(ep)
-		,m_shake_timer(io_ctx)
+		: io_ctx(context), ctx_(ctx), m_ep(ep), m_shake_timer(io_ctx)
 	{
 		connect();
 	}
@@ -38,6 +37,7 @@ class Client {
 		sock->lowest_layer().connect(m_ep);
 
 		auto shakecb = [this, sock](boost::system::error_code ec) {
+			m_shake_timer.cancel();
 			if (!ec) {
 				kcp = std::make_shared<DTLS_Context>(io_ctx, sock);
 				kcp->exit_cb = std::bind(&Client::kcp_exit_cb, this);
@@ -49,9 +49,7 @@ class Client {
 			}
 		};
 
-
 		sock->async_handshake(boost::asio::ssl::stream_base::client, shakecb);
-
 
 		auto timercb = [this, sock](boost::system::error_code ec) {
 			if (!ec) {
@@ -75,7 +73,7 @@ int main()
 	try {
 		boost::asio::io_context context;
 
-		auto serverAddress = boost::asio::ip::address::from_string("216.238.79.71");
+		auto serverAddress = boost::asio::ip::address::from_string("216.238.76.114");
 		boost::asio::ip::udp::endpoint serverEndpoint(serverAddress, 8888);
 
 		boost::asio::ssl::dtls::context ctx(boost::asio::ssl::dtls::context::dtls_client);

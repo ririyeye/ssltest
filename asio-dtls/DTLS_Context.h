@@ -23,8 +23,7 @@ class DTLS_Context
 	std::function<void()> exit_cb;
 
 	DTLS_Context(boost::asio::io_context &serv, dtls_sock_ptr this_ptr)
-		: m_strand(serv.get_executor()), m_socket(this_ptr), m_recv_timer(serv), m_close_timer(serv)
-		, m_keep_timer(serv)
+		: m_strand(serv.get_executor()), m_socket(this_ptr), m_recv_timer(serv), m_close_timer(serv), m_keep_timer(serv)
 	{
 	}
 
@@ -35,7 +34,7 @@ class DTLS_Context
 		start_keep_alive();
 	}
 
-	const std::array<char, 4> keepstr = { 1, 2, 3, 4 };
+	const std::array<char, 3> keepstr = { 1, 2, 3 };
 
 	void start_keep_alive()
 	{
@@ -46,7 +45,7 @@ class DTLS_Context
 			do {
 				BOOST_LOG_TRIVIAL(info) << boost::format("send keep-a-live");
 				write_data(keepstr.data(), keepstr.size());
-				m_keep_timer.expires_from_now(boost::posix_time::seconds(1));
+				m_keep_timer.expires_from_now(boost::posix_time::milliseconds(500));
 				m_keep_timer.async_wait(yie[ec]);
 			} while (!ec);
 		});
@@ -80,7 +79,7 @@ class DTLS_Context
 				return true;
 			};
 
-			if(chk() == true) {
+			if (chk() == true) {
 				BOOST_LOG_TRIVIAL(info) << boost::format("get keep-a-live");
 				return;
 			}
@@ -93,7 +92,7 @@ class DTLS_Context
 		for (int i = 0; i < length; i++) {
 			prilen += sprintf(printbuff + prilen, "%02X ", buff[i]);
 		}
-		printf("get len = %d,%s\n", length, printbuff);
+		BOOST_LOG_TRIVIAL(info) << boost::format("get len = %d,%s") % length % printbuff;
 	}
 
 	void shutdown()
@@ -102,14 +101,14 @@ class DTLS_Context
 			if (exit_cb) {
 				exit_cb();
 			}
-
+			BOOST_LOG_TRIVIAL(info) << boost::format("begin shutdown");
 			m_keep_timer.cancel();
 
 			shutdown_flg = 1;
 			auto self(shared_from_this());
 			auto shutcb = [this, self](boost::system::error_code ec) {
 				m_close_timer.cancel();
-				printf("shutdonw callback!!!\n");
+				BOOST_LOG_TRIVIAL(info) << boost::format("shutdonw callback!!!");
 			};
 
 			m_socket->async_shutdown(boost::asio::bind_executor(m_strand, shutcb));
@@ -118,7 +117,7 @@ class DTLS_Context
 			m_close_timer.expires_from_now(boost::posix_time::seconds(5));
 			auto timercb = [this, self](boost::system::error_code ec) {
 				if (!ec) {
-					printf("force shutdown\n");
+					BOOST_LOG_TRIVIAL(info) << boost::format("force shutdown");
 					m_socket->next_layer().close();
 				}
 			};
@@ -134,7 +133,7 @@ class DTLS_Context
 		auto self(shared_from_this());
 		auto timercb = [this, self](boost::system::error_code ec) {
 			if (!ec) {
-				printf("time out!!!\n");
+				BOOST_LOG_TRIVIAL(info) << boost::format("recv timeout");
 				shutdown();
 			}
 		};
