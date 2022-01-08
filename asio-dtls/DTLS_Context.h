@@ -31,23 +31,22 @@ class DTLS_Context
 	{
 		start_read();
 		start_timer();
-		start_keep_alive();
+		trig_keep_alive(boost::posix_time::seconds(1));
 	}
 
 	const std::array<char, 3> keepstr = { 1, 2, 3 };
 
-	void start_keep_alive()
+	void trig_keep_alive(const boost::posix_time::time_duration &tim)
 	{
 		auto self(shared_from_this());
 
-		boost::asio::spawn(m_strand, [this, self](boost::asio::yield_context yie) {
-			boost::system::error_code ec;
-			do {
+		m_keep_timer.cancel();
+		m_keep_timer.expires_from_now(tim);
+		m_keep_timer.async_wait([this, self](boost::system::error_code ec) {
+			if (!ec) {
 				BOOST_LOG_TRIVIAL(info) << boost::format("send keep-a-live");
 				write_data(keepstr.data(), keepstr.size());
-				m_keep_timer.expires_from_now(boost::posix_time::milliseconds(500));
-				m_keep_timer.async_wait(yie[ec]);
-			} while (!ec);
+			}
 		});
 	}
 
@@ -65,6 +64,7 @@ class DTLS_Context
 		};
 
 		m_socket->async_send(boost::asio::buffer(*sndbuf), boost::asio::bind_executor(m_strand, nullact));
+		trig_keep_alive(boost::posix_time::seconds(1));
 	}
 
 	virtual void read_data_cb(char *buff, int length)

@@ -21,8 +21,10 @@ class Client {
 	void kcp_start()
 	{
 		kcp->start();
+#if 0
 		const char *test = "hello\n";
 		kcp->write_data(test, strlen(test));
+#endif
 	}
 
 	void kcp_exit_cb()
