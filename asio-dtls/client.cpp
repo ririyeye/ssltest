@@ -13,23 +13,24 @@ class Client {
 	Client(boost::asio::io_context &context,
 	       boost::asio::ssl::dtls::context &ctx,
 	       boost::asio::ip::udp::endpoint &ep)
-		: io_ctx(context), ctx_(ctx), m_ep(ep), m_shake_timer(io_ctx)
+		: io_ctx(context), ctx_(ctx), m_ep(ep), m_shake_timer(io_ctx), kcp(io_ctx)
 	{
 		connect();
+		set_kcpcb_to_dtls();
 	}
 
+    private:
 	void kcp_start()
 	{
-		kcp->start();
-#if 0
-		const char *test = "hello\n";
-		kcp->write_data(test, strlen(test));
-#endif
+		connected_flg = true;
+		dtls_sock->start();
+		set_kcpcb_to_dtls();
 	}
 
 	void kcp_exit_cb()
 	{
-		printf("kcp exit!!! reconnect\n");
+		connected_flg = false;
+		BOOST_LOG_TRIVIAL(warning) << boost::format("dtls exit ,reconnect");
 		connect();
 	}
 
@@ -41,8 +42,8 @@ class Client {
 		auto shakecb = [this, sock](boost::system::error_code ec) {
 			m_shake_timer.cancel();
 			if (!ec) {
-				kcp = std::make_shared<DTLS_Context>(io_ctx, sock);
-				kcp->exit_cb = std::bind(&Client::kcp_exit_cb, this);
+				dtls_sock = std::make_shared<DTLS_Context>(io_ctx, sock);
+				dtls_sock->exit_cb = std::bind(&Client::kcp_exit_cb, this);
 				kcp_start();
 			} else {
 				sock->next_layer().close();
@@ -63,11 +64,45 @@ class Client {
 		m_shake_timer.async_wait(timercb);
 	}
 
+	void set_dtlsrd_to_kcp_input(std::shared_ptr<std::array<char, 1500> > buffer)
+	{
+		if (!buffer) {
+			buffer = std::make_shared<std::array<char, 1500> >();
+		}
+
+		dtls_sock->async_read(buffer->data(), buffer->size(), [this, buffer](const char *dat, int length) {
+			if (length > 0) {
+				if (!connected_flg) {
+					set_dtlsrd_to_kcp_input(buffer);
+				} else {
+					set_dtlsrd_to_kcp_input(nullptr);
+					kcp.async_input_kcp(dat, length, [buffer](const char *dat, int length) {});
+				}
+			} else {
+				//dtls read 失败
+			}
+		});
+	}
+
+	void set_kcpcb_to_dtls()
+	{
+		kcp.output_cb = [this](const char *buf, int len) {
+			//dtls还没有连接上 忽略掉
+			if (!connected_flg)
+				return;
+			std::shared_ptr<std::array<char, 1500> > buffer;
+			std::copy(buf, buf + len, buffer->data());
+			dtls_sock->async_write(buffer->data(), buffer->size(), [buffer](const char *buff, int len) {});
+		};
+	}
+
 	boost::asio::ssl::dtls::context &ctx_;
 	boost::asio::io_context &io_ctx;
 	boost::asio::ip::udp::endpoint &m_ep;
-	std::shared_ptr<DTLS_Context> kcp;
+	std::shared_ptr<DTLS_Context> dtls_sock;
 	boost::asio::deadline_timer m_shake_timer;
+	bool connected_flg = false;
+	kcp_context kcp;
 };
 
 int main()

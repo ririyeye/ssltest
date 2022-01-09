@@ -34,65 +34,28 @@ class DTLS_Context
 		trig_keep_alive(boost::posix_time::seconds(1));
 	}
 
-	const std::array<char, 3> keepstr = { 1, 2, 3 };
-
-	void trig_keep_alive(const boost::posix_time::time_duration &tim)
-	{
-		auto self(shared_from_this());
-
-		m_keep_timer.cancel();
-		m_keep_timer.expires_from_now(tim);
-		m_keep_timer.async_wait([this, self](boost::system::error_code ec) {
-			if (!ec) {
-				BOOST_LOG_TRIVIAL(info) << boost::format("send keep-a-live");
-				write_data(keepstr.data(), keepstr.size());
-			}
-		});
-	}
-
 	virtual ~DTLS_Context()
 	{
 		BOOST_LOG_TRIVIAL(info) << boost::format("exit dtls");
 	}
 
-	void write_data(const char *dat, int length)
+	void async_write(const char *dat, int length, std::function<void(const char *buff, int len)> write_cb)
 	{
-		auto sndbuf = std::make_shared<std::vector<char> >(length);
-		std::copy(dat, dat + length, sndbuf->begin());
-
-		auto nullact = [this, sndbuf](boost::system::error_code ec, std::size_t length) {
+		auto write_act = [this, dat, length, write_cb](boost::system::error_code ec, std::size_t length_wr) {
+			if (write_cb) {
+				write_cb(dat, (!ec) ? length_wr : -1);
+			}
 		};
 
-		m_socket->async_send(boost::asio::buffer(*sndbuf), boost::asio::bind_executor(m_strand, nullact));
+		m_socket->async_send(boost::asio::buffer(dat, length), boost::asio::bind_executor(m_strand, write_act));
 		trig_keep_alive(boost::posix_time::seconds(1));
 	}
 
-	virtual void read_data_cb(char *buff, int length)
+	void async_read(char *dat, int length, std::function<void(const char *buff, int len)> input_read_cb)
 	{
-		if (length == keepstr.size()) {
-			auto chk = [&]() {
-				for (int i = 0; i < keepstr.size(); i++) {
-					if (buff[i] != keepstr[i]) {
-						return false;
-					}
-				}
-				return true;
-			};
-
-			if (chk() == true) {
-				BOOST_LOG_TRIVIAL(info) << boost::format("get keep-a-live");
-				return;
-			}
-		}
-
-		char *printbuff = (char *)::alloca(length * 4);
-
-		int prilen = 0;
-
-		for (int i = 0; i < length; i++) {
-			prilen += sprintf(printbuff + prilen, "%02X ", buff[i]);
-		}
-		BOOST_LOG_TRIVIAL(info) << boost::format("get len = %d,%s") % length % printbuff;
+		async_read_buffer = dat;
+		async_read_length = length;
+		async_read_cb = input_read_cb;
 	}
 
 	void shutdown()
@@ -127,6 +90,71 @@ class DTLS_Context
 		}
 	}
 
+    private:
+	char *async_read_buffer = nullptr;
+	int async_read_length = -1;
+	std::function<void(const char *buff, int len)> async_read_cb = nullptr;
+
+	const std::array<char, 3> keepstr = { 1, 2, 3 };
+
+	void trig_keep_alive(const boost::posix_time::time_duration &tim)
+	{
+		auto self(shared_from_this());
+
+		m_keep_timer.cancel();
+		m_keep_timer.expires_from_now(tim);
+		m_keep_timer.async_wait([this, self](boost::system::error_code ec) {
+			if (!ec) {
+				BOOST_LOG_TRIVIAL(info) << boost::format("send keep-a-live");
+				async_write(keepstr.data(), keepstr.size(), nullptr);
+			}
+		});
+	}
+
+	void read_data_cb(char *buff, int length)
+	{
+		//read fail
+		if (length < 0) {
+			if (async_read_buffer && async_read_length > 0 && async_read_cb) {
+				async_read_length = -1;
+				async_read_cb(async_read_buffer, length);
+			}
+			return;
+		}
+
+		//check keep a live
+		if (length == keepstr.size()) {
+			auto chk = [&]() {
+				for (int i = 0; i < keepstr.size(); i++) {
+					if (buff[i] != keepstr[i]) {
+						return false;
+					}
+				}
+				return true;
+			};
+
+			if (chk() == true) {
+				BOOST_LOG_TRIVIAL(info) << boost::format("get keep-a-live");
+				return;
+			}
+		}
+#if 0
+		//print recv
+		char *printbuff = (char *)::alloca(length * 4);
+
+		int prilen = 0;
+
+		for (int i = 0; i < length; i++) {
+			prilen += sprintf(printbuff + prilen, "%02X ", buff[i]);
+		}
+		BOOST_LOG_TRIVIAL(info) << boost::format("get len = %d,%s") % length % printbuff;
+#endif
+		if (async_read_buffer && async_read_length > 0 && async_read_cb) {
+			async_read_length = -1;
+			async_read_cb(async_read_buffer, length);
+		}
+	}
+
 	void start_timer()
 	{
 		m_recv_timer.expires_from_now(boost::posix_time::seconds(5));
@@ -146,17 +174,19 @@ class DTLS_Context
 		auto self(shared_from_this());
 
 		auto _onrd = [this, self](boost::system::error_code ec, std::size_t length) {
+			read_data_cb(recv_buff, (!ec) ? length : -1);
 			if (!ec) {
-				read_data_cb(recv_buff, length);
 				start_timer();
 				start_read();
 			}
 		};
-
-		m_socket->async_receive(boost::asio::buffer(recv_buff), boost::asio::bind_executor(m_strand, _onrd));
+		if (async_read_buffer && async_read_length > 0) {
+			m_socket->async_receive(boost::asio::buffer(recv_buff), boost::asio::bind_executor(m_strand, _onrd));
+		} else {
+			m_socket->async_receive(boost::asio::buffer(async_read_buffer, async_read_length), boost::asio::bind_executor(m_strand, _onrd));
+		}
 	}
 
-    private:
 	char recv_buff[1500];
 	dtls_sock_ptr m_socket;
 	boost::asio::strand<boost::asio::io_context::executor_type> m_strand;
