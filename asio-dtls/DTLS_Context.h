@@ -181,9 +181,9 @@ class DTLS_Context
 			}
 		};
 		if (async_read_buffer && async_read_length > 0) {
-			m_socket->async_receive(boost::asio::buffer(recv_buff), boost::asio::bind_executor(m_strand, _onrd));
-		} else {
 			m_socket->async_receive(boost::asio::buffer(async_read_buffer, async_read_length), boost::asio::bind_executor(m_strand, _onrd));
+		} else {
+			m_socket->async_receive(boost::asio::buffer(recv_buff), boost::asio::bind_executor(m_strand, _onrd));
 		}
 	}
 

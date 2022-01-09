@@ -70,6 +70,64 @@ bool verifyCookie(const std::string &cookie, const boost::asio::ip::udp::endpoin
 	return (cookie == GenBase64_from_ep(ep));
 }
 
+class Servers {
+    public:
+	Servers(boost::asio::io_context &context,
+		std::shared_ptr<DTLS_Context> insocks)
+		: kcp(context), dtls_sock(insocks)
+	{
+		dtls_sock->start();
+		dtls_sock->exit_cb = [this]() {
+			delete this;
+		};
+		set_kcpcb_to_dtls();
+		set_dtlsrd_to_kcp_input(nullptr);
+		set_kcp_read_cb();
+	}
+
+	void set_kcp_read_cb()
+	{
+		kcp.async_read_kcp(recvbuff, 1500, [this](const char *buff, int len) {
+			if (len > 0) {
+				recvbuff[len] = 0;
+				printf("kcp read = %d,%s\n", len, buff);
+				set_kcp_read_cb();
+			} else {
+				BOOST_LOG_TRIVIAL(info) << boost::format("kcp async read error %d") % len;
+			}
+		});
+	}
+
+	void set_dtlsrd_to_kcp_input(std::shared_ptr<std::array<char, 1500> > buffer)
+	{
+		if (!buffer) {
+			buffer = std::make_shared<std::array<char, 1500> >();
+		}
+
+		dtls_sock->async_read(buffer->data(), buffer->size(), [this, buffer](const char *dat, int length) {
+			if (length > 0) {
+				set_dtlsrd_to_kcp_input(nullptr);
+				kcp.async_input_kcp(dat, length, [buffer](const char *dat, int length) {});
+
+			} else {
+				//dtls read 失败
+			}
+		});
+	}
+
+	void set_kcpcb_to_dtls()
+	{
+		kcp.output_cb = [this](const char *buf, int len) {
+			auto buffer = std::make_shared<std::array<char, 1500> >();
+			std::copy(buf, buf + len, buffer->data());
+			dtls_sock->async_write(buffer->data(), buffer->size(), [buffer](const char *buff, int len) {});
+		};
+	}
+	std::shared_ptr<DTLS_Context> dtls_sock;
+	kcp_context kcp;
+	char recvbuff[1500];
+};
+
 template <typename DatagramSocketType>
 class DTLS_Server {
     public:
@@ -127,9 +185,9 @@ class DTLS_Server {
 		if (ec) {
 			std::cout << "Handshake Error: " << ec.message() << std::endl;
 		} else {
-			std::make_shared<DTLS_Context>(io_ctx, sock)->start();
 			auto ep = sock->next_layer().remote_endpoint();
 			std::cout << "Handshake ok = " << ep.address().to_string() << "port = " << ep.port() << std::endl;
+			new Servers(io_ctx,std::make_shared<DTLS_Context>(io_ctx, sock));
 		}
 	}
 

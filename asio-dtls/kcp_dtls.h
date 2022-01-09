@@ -14,16 +14,17 @@ class kcp_context {
 		: m_strand(io_ctx.get_executor()), m_kcp_timer(io_ctx)
 	{
 		pkcp = ikcp_create(1, this);
+		pkcp->mtu = 1350;
 		trig_kcp_timer();
 		pkcp->output = _output;
 	}
 
-	void async_write_kcp(char *dat, int length, std::function<void(const char *buff, int len)> input_write_cb)
+	void async_write_kcp(const char *dat, int length, std::function<void(const char *buff, int len)> input_write_cb)
 	{
 		boost::asio::dispatch(m_strand, [this, dat, length, input_write_cb]() {
-			ikcp_send(pkcp, dat, length);
+			int ret = ikcp_send(pkcp, dat, length);
 			if (input_write_cb) {
-				input_write_cb(dat, length);
+				input_write_cb(dat, ret < 0 ? ret : length);
 			}
 		});
 	}

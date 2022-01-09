@@ -13,7 +13,7 @@ class Client {
 	Client(boost::asio::io_context &context,
 	       boost::asio::ssl::dtls::context &ctx,
 	       boost::asio::ip::udp::endpoint &ep)
-		: io_ctx(context), ctx_(ctx), m_ep(ep), m_shake_timer(io_ctx), kcp(io_ctx)
+		: io_ctx(context), ctx_(ctx), m_ep(ep), m_shake_timer(io_ctx), kcp(io_ctx), kcp_test(context)
 	{
 		connect();
 		set_kcpcb_to_dtls();
@@ -23,8 +23,25 @@ class Client {
 	void kcp_start()
 	{
 		connected_flg = true;
-		dtls_sock->start();
-		set_kcpcb_to_dtls();
+		dtls_sock->start();		
+		set_dtlsrd_to_kcp_input(nullptr);
+		//add test 1000ms kcp write
+		kcp_test_send();
+	}
+
+	void kcp_test_send()
+	{
+		auto timcb = [this](boost::system::error_code ec) {
+			if (!ec) {
+				const char *snd = "test kcp send!!!!\n";
+				kcp.async_write_kcp(snd, strlen(snd), nullptr);
+
+				kcp_test_send();
+			}
+		};
+
+		kcp_test.expires_from_now(boost::posix_time::seconds(1));
+		kcp_test.async_wait(timcb);
 	}
 
 	void kcp_exit_cb()
@@ -90,11 +107,13 @@ class Client {
 			//dtls还没有连接上 忽略掉
 			if (!connected_flg)
 				return;
-			std::shared_ptr<std::array<char, 1500> > buffer;
+			auto buffer = std::make_shared<std::array<char, 1500> >();
 			std::copy(buf, buf + len, buffer->data());
 			dtls_sock->async_write(buffer->data(), buffer->size(), [buffer](const char *buff, int len) {});
 		};
 	}
+
+	boost::asio::deadline_timer kcp_test;
 
 	boost::asio::ssl::dtls::context &ctx_;
 	boost::asio::io_context &io_ctx;
