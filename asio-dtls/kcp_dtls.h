@@ -57,8 +57,8 @@ class kcp_context {
 			if (async_read_cb_buff && async_read_cb_len > 0 && async_read_cb) {
 				int rdlen = ikcp_recv(pkcp, async_read_cb_buff, async_read_cb_len);
 				if (rdlen > 0) {
-					async_read_cb(async_read_cb_buff, rdlen);
 					async_read_cb_len = -1;
+					async_read_cb(async_read_cb_buff, rdlen);
 				}
 			}
 		});

@@ -92,8 +92,8 @@ class Client {
 				if (!connected_flg) {
 					set_dtlsrd_to_kcp_input(buffer);
 				} else {
-					set_dtlsrd_to_kcp_input(nullptr);
 					kcp.async_input_kcp(dat, length, [buffer](const char *dat, int length) {});
+					set_dtlsrd_to_kcp_input(nullptr);
 				}
 			} else {
 				//dtls read 失败
