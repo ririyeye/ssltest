@@ -109,7 +109,7 @@ class Client {
 				return;
 			auto buffer = std::make_shared<std::array<char, 1500> >();
 			std::copy(buf, buf + len, buffer->data());
-			dtls_sock->async_write(buffer->data(), buffer->size(), [buffer](const char *buff, int len) {});
+			dtls_sock->async_write(buffer->data(), len, [buffer](const char *buff, int len) {});
 		};
 	}
 

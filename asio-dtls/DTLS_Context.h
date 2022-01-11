@@ -42,8 +42,13 @@ class DTLS_Context
 	void async_write(const char *dat, int length, std::function<void(const char *buff, int len)> write_cb)
 	{
 		auto write_act = [this, dat, length, write_cb](boost::system::error_code ec, std::size_t length_wr) {
-			if (write_cb) {
-				write_cb(dat, (!ec) ? length_wr : -1);
+			if (!ec) {
+				BOOST_LOG_TRIVIAL(info) << boost::format("dtls output = %d") % length_wr;
+				if (write_cb) {
+					write_cb(dat, (!ec) ? length_wr : -1);
+				}
+			} else {
+				BOOST_LOG_TRIVIAL(info) << boost::format("dtls async_write error");
 			}
 		};
 

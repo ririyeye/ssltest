@@ -106,10 +106,10 @@ class Servers {
 
 		dtls_sock->async_read(buffer->data(), buffer->size(), [this, buffer](const char *dat, int length) {
 			if (length > 0) {
-				set_dtlsrd_to_kcp_input(nullptr);
 				kcp.async_input_kcp(dat, length, [buffer](const char *dat, int length) {});
-
+				set_dtlsrd_to_kcp_input(nullptr);
 			} else {
+				BOOST_LOG_TRIVIAL(info) << boost::format("dtls read fail");
 				//dtls read 失败
 			}
 		});
@@ -120,7 +120,7 @@ class Servers {
 		kcp.output_cb = [this](const char *buf, int len) {
 			auto buffer = std::make_shared<std::array<char, 1500> >();
 			std::copy(buf, buf + len, buffer->data());
-			dtls_sock->async_write(buffer->data(), buffer->size(), [buffer](const char *buff, int len) {});
+			dtls_sock->async_write(buffer->data(), len, [buffer](const char *buff, int len) {});
 		};
 	}
 	std::shared_ptr<DTLS_Context> dtls_sock;
