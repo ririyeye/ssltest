@@ -154,6 +154,7 @@ class DTLS_Context
 		}
 		BOOST_LOG_TRIVIAL(info) << boost::format("get len = %d,%s") % length % printbuff;
 #endif
+		BOOST_LOG_TRIVIAL(info) << boost::format("dtls recvive %d") % length;
 		if (async_read_buffer && async_read_length > 0 && async_read_cb) {
 			async_read_length = -1;
 			async_read_cb(async_read_buffer, length);

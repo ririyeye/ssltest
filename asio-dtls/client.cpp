@@ -23,18 +23,21 @@ class Client {
 	void kcp_start()
 	{
 		connected_flg = true;
-		dtls_sock->start();		
+		dtls_sock->start();
 		set_dtlsrd_to_kcp_input(nullptr);
 		//add test 1000ms kcp write
 		kcp_test_send();
 	}
 
+	int sndtim = 0;
 	void kcp_test_send()
 	{
 		auto timcb = [this](boost::system::error_code ec) {
 			if (!ec) {
-				const char *snd = "test kcp send!!!!\n";
-				kcp.async_write_kcp(snd, strlen(snd), nullptr);
+				auto snd = std::make_shared<std::array<char, 1000> >();
+				int len = sprintf(snd->data(), "test kcp send!!!! = %d \n", sndtim++);
+				BOOST_LOG_TRIVIAL(warning) << "write = " << snd->data();
+				kcp.async_write_kcp(snd->data(), len, [snd](const char *buff, int) {});
 
 				kcp_test_send();
 			}
@@ -92,8 +95,8 @@ class Client {
 				if (!connected_flg) {
 					set_dtlsrd_to_kcp_input(buffer);
 				} else {
-					set_dtlsrd_to_kcp_input(nullptr);
 					kcp.async_input_kcp(dat, length, [buffer](const char *dat, int length) {});
+					set_dtlsrd_to_kcp_input(nullptr);
 				}
 			} else {
 				//dtls read 失败
