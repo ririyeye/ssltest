@@ -1,0 +1,9 @@
+
+
+apt install cmake
+apt install libssl-doc
+apt install libssl-dev
+apt install libboost-all-dev
+apt install libuv1-dev
+apt install libmbedtls-dev
+apt install libmbedtls-doc
