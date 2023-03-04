@@ -4,7 +4,7 @@ PROJECT(ssltest)
 
 option(CMAKE_VERBOSE_MAKEFILE "make verbose=1" OFF)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
 
 add_compile_options("-g3")
 add_compile_options("-DBOOST_BIND_GLOBAL_PLACEHOLDERS")
@@ -66,4 +66,4 @@ add_subdirectory(mbed-libuv)
 
 add_subdirectory(mbed-asio)
 
-add_subdirectory(asio-dtls)
+add_subdirectory(asio-libssl)

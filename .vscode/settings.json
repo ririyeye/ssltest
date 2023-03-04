@@ -65,6 +65,12 @@
 		"variant": "cpp",
 		"*.ipp": "cpp",
 		"any": "cpp",
-		"source_location": "cpp"
+		"source_location": "cpp",
+		"compare": "cpp",
+		"concepts": "cpp",
+		"coroutine": "cpp",
+		"numbers": "cpp",
+		"semaphore": "cpp",
+		"stop_token": "cpp"
 	}
 }

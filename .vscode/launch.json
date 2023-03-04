@@ -29,7 +29,7 @@
             "name": "server",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/test/asio-dtls/server",
+            "program": "${workspaceFolder}/test/asio-libssl/server",
             "args": [
 
             ],
