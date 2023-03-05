@@ -8,3 +8,6 @@ dtls-libuv-server
 dtls-mbedtls-server
 dtls-mbed-server
 dtls-mbed-client
+server
+ca
+client
