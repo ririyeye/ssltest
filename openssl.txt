@@ -17,4 +17,6 @@ openssl s_server -accept 8888 -dtls -CAfile ca/ca.cer -cert server/pri.ca -key s
 
 # 单向验证
 openssl s_client -connect 127.0.0.1:8888 -dtls -CAfile ca/ca.cer
+# 双向验证
+openssl s_client -connect 127.0.0.1:8888 -dtls -CAfile ca/ca.cer -cert client/pri.ca -key client/pri_key.pem -pass pass:12140 -mtu 1400
 

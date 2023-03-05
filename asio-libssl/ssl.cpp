@@ -23,7 +23,7 @@ SSL_CTX* create_context()
 
 static int pass(char* buf, int size, int rwflag, void* userdata)
 {
-    const char* pass = "12138";
+    const char* pass = "12139";
     strncpy(buf, (char*)pass, size);
     buf[strlen(pass)] = '\0';
     return strlen(pass);
@@ -50,7 +50,7 @@ static int my_pref_list[] = {
 void configure_context(SSL_CTX* ctx)
 {
     // SSL_CTX_set_verify(ctx, SSL_VERIFY_FAIL_IF_NO_PEER_CERT | SSL_VERIFY_CLIENT_ONCE, NULL);
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
 
     SSL_CTX_set_default_passwd_cb(ctx, pass);
 

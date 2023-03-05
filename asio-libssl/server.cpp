@@ -50,7 +50,7 @@ public:
         BIO_set_mem_eof_return(bio[SEND], -1);
         BIO_set_mem_eof_return(bio[RECV], -1);
         SSL_set_bio(ssl, bio[RECV], bio[SEND]);
-
+        DTLS_set_link_mtu(ssl, 1400);
         SSL_set_accept_state(ssl);
     }
 
@@ -76,24 +76,46 @@ public:
 private:
     awaitable<int> send_bio_data()
     {
-        int num = BIO_pending(bio[SEND]);
-        if (num <= 0) {
-            co_return -1;
-        }
+        do {
+            int num = BIO_pending(bio[SEND]);
+            if (num <= 0) {
+                co_return -1;
+            }
 
-        char sdbuff[4096];
-        int  wrlen = BIO_read(bio[SEND], sdbuff, 4096);
-        if (wrlen > 0) {
-            int ret = co_await _socket.async_send(asio::buffer(sdbuff, wrlen), use_awaitable);
-
-            co_return 0;
-        }
-        co_return -2;
+            char sdbuff[4096];
+            int  wrlen = BIO_read(bio[SEND], sdbuff, 4096);
+            if (wrlen > 0) {
+                int ret = co_await _socket.async_send(asio::buffer(sdbuff, wrlen), use_awaitable);
+            }
+        } while (1);
     }
+    void ShowCerts(SSL* ssl)
+    {
+        X509* cert;
+        char* line;
 
+        cert = SSL_get_peer_certificate(ssl);
+        // SSL_get_verify_result()是重点，SSL_CTX_set_verify()只是配置启不启用并没有执行认证，调用该函数才会真证进行证书认证
+        // 如果验证不通过，那么程序抛出异常中止连接
+        if (SSL_get_verify_result(ssl) == X509_V_OK) {
+            printf("证书验证通过\n");
+        }
+        if (cert != NULL) {
+            printf("数字证书信息:\n");
+            line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+            printf("证书: %s\n", line);
+            free(line);
+            line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
+            printf("颁发者: %s\n", line);
+            free(line);
+            X509_free(cert);
+        } else
+            printf("无证书信息！\n");
+    }
     awaitable<void> receive_loop(void)
     {
         char buff[1500];
+        int  ssl_error;
         while (true) {
             int bytes = 0;
             do {
@@ -107,11 +129,22 @@ private:
                     printf("get data %d = %s\n", bytes, sslrd);
                 }
 
+                if (!connected_flg && SSL_is_init_finished(ssl)) {
+                    connected_flg = 1;
+                    ShowCerts(ssl);
+                    printf("handshake ok !!\n");
+                }
+
                 if (ssl_error == SSL_ERROR_WANT_READ || ssl_error == SSL_ERROR_WANT_WRITE) {
                     co_await send_bio_data();
                 } else if (ssl_error == SSL_ERROR_ZERO_RETURN) {
                     std::cout << "remote close!!" << std::endl;
                     co_return;
+                } else if (ssl_error == SSL_ERROR_SSL) {
+                    std::cout << "remote ssl error!!" << std::endl;
+                    co_return;
+                } else if (ssl_error) {
+                    std::cout << "error = " << ssl_error << std::endl;
                 }
             } while (bytes > 0);
 
@@ -126,6 +159,8 @@ private:
     SSL*                         ssl;
     BIO*                         bio[2];
     std::list<std::vector<char>> app_recv;
+
+    int connected_flg = 0;
 };
 
 awaitable<void> listener(boost::asio::io_service& ios, int port, SSL_CTX* ctx)
